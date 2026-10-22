@@ -120,6 +120,18 @@ Shell quirks on this machine:
 - No production anything. The machine-wide production guard applies.
 - Preflight and tests must not prompt, attach to, or restart existing Herdr sessions. Use a dedicated inbox workspace and a disposable fixture directory for launch tests.
 
+## Owner permissions for the build (2026-10-22)
+
+- **Push**: straight to `main` of `jimzord12/agent-inbox`, this repository only.
+- **Live runs**: real Claude sessions through Herdr under the **work** profile (`ccw`), so agents can
+  use peer messaging. A short personal-profile session only where a test is about profile routing
+  (a "personal" item must open with `.claude-personal`).
+- **Real-use setup at the end** (INB-020): write `profiles.json` in the real inbox home and install
+  the `/inbox` mod once in each profile. One inbox; `work` / `personal` are item labels, and the label
+  picks the Claude profile its session opens with.
+- **Process**: Backlog.md is the tracker; a closed review loop per task, per milestone and once for
+  the whole project (`docs/practices/review.md`).
+
 ## Open questions
 
 - Executable name: keep `agent-inbox`, or something shorter.

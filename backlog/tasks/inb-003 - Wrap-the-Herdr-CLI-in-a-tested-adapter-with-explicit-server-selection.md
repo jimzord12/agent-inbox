@@ -4,6 +4,7 @@ title: Wrap the Herdr CLI in a tested adapter with explicit server selection
 status: To Do
 assignee: []
 created_date: '2026-10-22 07:05'
+updated_date: '2026-10-22 07:10'
 labels:
   - 'type:feature'
   - herdr
@@ -33,3 +34,9 @@ The worker talks to Herdr 0.9.5 only through argv calls to the herdr CLI (docs/p
 - [ ] #2 Review loop PASS (docs/practices/review.md), report stored under docs/reviews/
 - [ ] #3 Evidence named in the final summary, with what remains unverified
 <!-- DOD:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+A draft adapter exists at src/herdr/adapter.ts (committed with the board setup, typechecks, no tests yet). Response shapes come from herdr api schema --json (protocol 22): tab create returns {tab, root_pane}; agent start returns {agent, argv}; errors are {error:{code,message}} with exit 1; not-found codes end in _not_found.
+<!-- SECTION:NOTES:END -->

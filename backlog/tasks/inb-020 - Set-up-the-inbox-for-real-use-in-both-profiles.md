@@ -1,0 +1,37 @@
+---
+id: INB-020
+title: Set up the inbox for real use in both profiles
+status: To Do
+assignee: []
+created_date: '2026-10-22 07:10'
+labels:
+  - 'type:chore'
+  - mod
+  - cli
+milestone: m-4
+dependencies:
+  - INB-014
+  - INB-016
+priority: medium
+ordinal: 20000
+---
+
+## Description
+
+<!-- SECTION:DESCRIPTION:BEGIN -->
+Owner approved 2026-10-22 (docs/decisions.md): at the end of the build, write profiles.json in the real inbox home (work maps to the .claude-work folder in the user profile, personal to .claude-personal) and install the /inbox mod once in each profile, so the owner can type /inbox in a ccw or ccp session. This is the one sanctioned change to the profiles' plugin configuration; settings.json files and hooks stay untouched beyond what the plugin install itself writes.
+<!-- SECTION:DESCRIPTION:END -->
+
+## Acceptance Criteria
+<!-- AC:BEGIN -->
+- [ ] #1 profiles.json in the real inbox home maps work and personal to their config folders and doctor reports both as configured
+- [ ] #2 a fresh ccw session and a fresh ccp session each show /inbox listing the same items
+- [ ] #3 the exact install commands and what they changed are recorded in the final summary and in the README
+<!-- AC:END -->
+
+## Definition of Done
+<!-- DOD:BEGIN -->
+- [ ] #1 Gates green: bun run typecheck and bun test pass on the committed revision
+- [ ] #2 Review loop PASS (docs/practices/review.md), report stored under docs/reviews/
+- [ ] #3 Evidence named in the final summary, with what remains unverified
+<!-- DOD:END -->
