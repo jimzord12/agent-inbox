@@ -164,6 +164,10 @@ Shell quirks on this machine:
 
 ## Build decisions (agent, 2026-10-22, from review loops)
 
+- **A busy store at SessionStart is tried once more** (INB-010): Claude runs SessionStart only
+  once, so a startup lost to a busy store would leave the session unbound and the attempt blocked.
+  Worst case about 8 s, inside the 15 s hook timeout; still busy, the hook passes silently and the
+  worker blocks at its bind timeout. A busy Stop gets the same retry, then saves the reply aside.
 - **An update whose content is already current is a no-op**, checked before the revision guard
   (M1 review): a producer retrying after a lost response gets `changed:false`, not
   `REVISION_CONFLICT`. `changed:false` means "the item now holds your content", even if someone

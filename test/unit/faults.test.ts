@@ -140,6 +140,16 @@ describe("a crash at each phase boundary: no false delivery, no blind replay", (
     expect(count(fake, "agent focus")).toBe(1);
   });
 
+  test("a plain worker started on a crashed attempt never repeats a recorded step", async () => {
+    const attempt = openAttempt();
+    const fake = new FakeHerdr(bridge(attempt.id));
+    await runUntilCrash(fake, attempt.id, finishing("start_agent"));
+    // Not a retry: e.g. a second `open` racing the crash. It finds start_agent recorded.
+    expect(await worker(fake, attempt.id).run()).toMatchObject({ status: "uncertain", error: { code: "DELIVERY_UNCERTAIN" } });
+    expect(count(fake, "agent start")).toBe(1);
+    expect(count(fake, "agent prompt")).toBe(0);
+  });
+
   test("a crash before the tab answer was recorded: no second tab, ever", async () => {
     const attempt = openAttempt();
     const fake = new FakeHerdr(bridge(attempt.id));
