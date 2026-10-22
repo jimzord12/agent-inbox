@@ -4,7 +4,7 @@ title: Show item details with paged handoff and attempt progress
 status: To Do
 assignee: []
 created_date: '2026-10-22 07:06'
-updated_date: '2026-10-22 07:19'
+updated_date: '2026-10-22 08:42'
 labels:
   - 'type:feature'
   - mod
@@ -33,3 +33,9 @@ Details show summary, profile, cwd, instruction, retained handoff, references, s
 - [ ] #2 Evidence named in the final summary, with what remains unverified
 - [ ] #3 Gates green: bun run typecheck and bun run test pass on the committed revision
 <!-- DOD:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+From INB-002 round 3 N2: show prompt_state as the dispatch evidence; a reconciled dispatch op can stay uncertain on a delivered attempt.
+<!-- SECTION:NOTES:END -->
