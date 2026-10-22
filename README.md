@@ -29,6 +29,29 @@ skill/        companion skill for producer projects
 test/         unit, concurrency and fault tests in test/unit (bun run test); test/e2e for live runs
 ```
 
+## Configuration
+
+Everything lives in the inbox home, `%LOCALAPPDATA%\agent-inbox` (`AGENT_INBOX_HOME` overrides).
+
+`profiles.json` maps the profile id an item names to a Claude config folder. Write it with:
+
+```sh
+agent-inbox setup-profiles                      # work = %USERPROFILE%\.claude-work, personal = %USERPROFILE%\.claude-personal
+agent-inbox setup-profiles --profile work=D:\claude\work --label work=Work --force
+```
+
+Folders must be absolute and exist; an existing file is replaced only with `--force`.
+
+`config.json` is optional; every key has a default:
+
+```json
+{ "herdr": { "socket_path": "C:\\Users\\you\\AppData\\Roaming\\herdr\\herdr.sock", "workspace_label": "Agent Inbox" } }
+```
+
+`socket_path` is the Herdr server every call names (default: Herdr's own socket under `%APPDATA%`); there is no
+fallback to another server. `workspace_label` names the workspace the inbox creates for its launch
+tabs. `agent-inbox doctor` shows the resolved profiles and Herdr settings.
+
 ## Development
 
 Requires [Bun](https://bun.sh) 1.4.3 or newer.

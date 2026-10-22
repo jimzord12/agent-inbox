@@ -1,10 +1,11 @@
 ---
 id: INB-004
 title: Add inbox configuration and a profiles setup command
-status: To Do
-assignee: []
+status: In Review
+assignee:
+  - '@claude'
 created_date: '2026-10-22 07:06'
-updated_date: '2026-10-22 07:19'
+updated_date: '2026-10-22 08:31'
 labels:
   - 'type:feature'
   - core
@@ -35,3 +36,9 @@ Profiles are user-owned config (spec §11): work maps to the .claude-work folder
 - [ ] #2 Evidence named in the final summary, with what remains unverified
 - [ ] #3 Gates green: bun run typecheck and bun run test pass on the committed revision
 <!-- DOD:END -->
+
+## Implementation Plan
+
+<!-- SECTION:PLAN:BEGIN -->
+1. src/core/config.ts: config.json with herdr.socket_path (default APPDATA herdr socket) and herdr.workspace_label (default Agent Inbox), validated, no fallback. 2. writeProfiles: simple ids, absolute existing dirs, atomic write, refuse overwrite without force; defaults = the ccw/ccp folders. 3. CLI setup-profiles with repeatable --profile id=DIR and --label id=TEXT, --force. 4. doctor reports profiles with dir existence and the Herdr config, paths only. 5. README configuration section. 6. Tests, review loop.
+<!-- SECTION:PLAN:END -->

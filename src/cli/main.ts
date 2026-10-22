@@ -4,15 +4,17 @@
 import { parseArgs } from "node:util";
 import { readFileSync } from "node:fs";
 import { parseOffsetTime } from "../core/clock";
+import { defaultProfileDirs, writeProfiles } from "../core/config";
 import { InboxError } from "../core/errors";
-import { resolveHome } from "../core/home";
+import { ensureHome, resolveHome } from "../core/home";
 import { Inbox, type View } from "../core/inbox";
+import { profilesPath } from "../core/profiles";
 import { doctor } from "./doctor";
 
-type Flags = Record<string, string | boolean | undefined>;
+type Flags = Record<string, string | boolean | string[] | undefined>;
 
 interface Command {
-  options: Record<string, { type: "string" | "boolean" }>;
+  options: Record<string, { type: "string" | "boolean"; multiple?: boolean }>;
   positionals: number;
   run(inbox: () => Inbox, args: string[], flags: Flags): unknown;
 }
@@ -120,6 +122,34 @@ const COMMANDS: Record<string, Command> = {
     options: json,
     positionals: 0,
     run: () => doctor(),
+  },
+  // User setup, not a producer command: writes profiles.json in the inbox home.
+  "setup-profiles": {
+    options: {
+      ...json,
+      profile: { type: "string", multiple: true },
+      label: { type: "string", multiple: true },
+      force: { type: "boolean" },
+    },
+    positionals: 0,
+    run: (_inbox, _a, f) => {
+      const pairs = (name: string) => {
+        const out: Record<string, string> = {};
+        for (const v of (f[name] as string[] | undefined) ?? []) {
+          const i = v.indexOf("=");
+          if (i < 1) usage(`\`--${name}\` takes ID=VALUE, got "${v}".`, name);
+          const id = v.slice(0, i);
+          if (id in out) usage(`\`--${name}\` names "${id}" twice.`, name);
+          out[id] = v.slice(i + 1);
+        }
+        return out;
+      };
+      const given = pairs("profile");
+      const dirs = Object.keys(given).length ? given : defaultProfileDirs();
+      const home = ensureHome(resolveHome());
+      const profiles = writeProfiles(home, dirs, pairs("label"), f.force === true);
+      return { path: profilesPath(home), profiles: Object.values(profiles) };
+    },
   },
 };
 
