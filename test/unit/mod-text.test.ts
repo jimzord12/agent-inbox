@@ -44,6 +44,13 @@ describe("mod text is inert", () => {
   });
 });
 
+test("a __proto__ key stays a plain key", () => {
+  const out = inertDeep<Record<string, unknown>>(JSON.parse('{"__proto__":{"polluted":true},"a":1}'));
+  expect(Object.keys(out)).toEqual(["__proto__", "a"]);
+  expect(Object.getPrototypeOf(out)).toBe(Object.prototype);
+  expect((out as { polluted?: boolean }).polluted).toBeUndefined();
+});
+
 describe("mod rows", () => {
   test("status names starting, waiting on the user, waiting for ack, failure and uncertain", () => {
     const at = (status: NonNullable<InboxRow["latest_attempt"]>["status"], phase: string, error_code: string | null = null) =>
@@ -60,10 +67,12 @@ describe("mod rows", () => {
 
   test("a row fits its width; the title gives way first", () => {
     const wide = rowLine(ROW, "active", NOW, 80);
-    expect(wide).toBe("● A Review the plan" + " ".repeat(80 - 4 - 15 - 2 - "work  example.script  5m".length) + "  work  example.script  5m");
+    expect(wide).toBe(" ● A Review the plan" + " ".repeat(80 - 5 - 15 - 2 - "work  example.script  5m".length) + "  work  example.script  5m");
+    // The selected row is marked by a glyph in the first cell; its width is unchanged.
+    expect(rowLine(ROW, "active", NOW, 80, true)).toBe(`›${wide.slice(1)}`);
     expect([...wide].length).toBe(80);
     for (const cols of [20, 30, 44]) expect([...rowLine({ ...ROW, title: "A very long title ".repeat(5) }, "active", NOW, cols)].length).toBeLessThanOrEqual(cols);
-    expect(rowLine({ ...ROW, read: true, kind: "informational" }, "active", NOW, 40).startsWith("  i Review")).toBe(true);
+    expect(rowLine({ ...ROW, read: true, kind: "informational" }, "active", NOW, 40).startsWith("   i Review")).toBe(true);
   });
 
   test("wide characters count two cells, so a CJK title never wraps the row", () => {
@@ -74,10 +83,17 @@ describe("mod rows", () => {
     for (const cols of [24, 40, 71, 80]) {
       const line = rowLine(row, "active", NOW, cols);
       expect(width(line)).toBeLessThanOrEqual(cols);
-      // Under ~40 cells the tail is cut too, the title keeping its 10.
-      if (cols >= 40) expect(line.endsWith("5m")).toBe(true);
+      // Under ~41 cells the tail is cut too, the title keeping its 10.
+      if (cols >= 41) expect(line.endsWith("5m")).toBe(true);
     }
     expect(width(rowLine({ ...ROW, title: "日本" }, "active", NOW, 80))).toBe(80);
+  });
+
+  test("emoji count two cells, sequences joined or with a selector as one glyph", () => {
+    for (const e of ["✅", "🚀", "⚠️", "👨‍👩‍👧", "👍🏽", "1️⃣"]) expect(width(e)).toBe(2);
+    const line = rowLine({ ...ROW, title: "✅ Build done 🚀 ⚠️ " + "🚀".repeat(40) }, "active", NOW, 44);
+    expect(width(line)).toBe(44);
+    expect(line.endsWith("5m")).toBe(true);
   });
 
   test("age reads in the largest whole unit", () => {

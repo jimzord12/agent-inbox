@@ -201,5 +201,6 @@ Shell quirks on this machine:
   the mod's list rows show launch and error status from one `list` call (spec §12.1) instead of one
   `attempt get` per row every 2 s.
 - **The mod runs the checkout's CLI** (`bun <mod>/../src/cli/main.ts`), found from the mod's own
-  folder; there is no `agent-inbox` on PATH. INB-020 installs from a folder marketplace whose entry is
-  a relative path, which Claude reads in place, so the same path holds after install.
+  folder; there is no `agent-inbox` on PATH. **To verify in INB-020:** whether an install from a
+  folder marketplace with a relative entry is read in place (the path then holds) or copied into the
+  plugin cache (it breaks; INB-020 then adds a configured CLI path). See preflight §7 item 7.

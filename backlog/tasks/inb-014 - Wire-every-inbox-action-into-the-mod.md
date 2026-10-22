@@ -4,7 +4,7 @@ title: Wire every inbox action into the mod
 status: To Do
 assignee: []
 created_date: '2026-10-22 07:06'
-updated_date: '2026-10-22 13:03'
+updated_date: '2026-10-22 13:41'
 labels:
   - 'type:feature'
   - mod
@@ -44,4 +44,6 @@ Open session, Open with profile, Open fresh session (only as its own action), Ac
 AC #4 (live smoke): the agent drives the /inbox pane itself, in a Claude session it starts in its own Herdr evaluation workspace, using herdr pane send-keys and pane read. If the pane cannot be driven that way, the task goes Blocked with a short click-through checklist for the owner instead of improvising.
 
 From the M3 milestone review N5: re-check that the worker outlives its caller when the caller is the mod (the CLI case is proved).
+
+From INB-012 round 1 N1/N2: seed the profile/producer filter values beyond rows already seen (status or profiles.json), and show snoozed_until in local time in the Snoozed view.
 <!-- SECTION:NOTES:END -->

@@ -33,8 +33,10 @@ export type InboxFilters = {
 
 export type InboxError = { code: string; message: string }
 
-// What the last list call answered, for the view and filters it was asked with.
+// What the last list call answered, and the call it answered (its CLI arguments joined): rows are
+// drawn only while that matches the view and filters on screen.
 export type InboxList = {
+  asked: string
   rows: InboxRow[]
   hasMore: boolean
   refreshedAt: number

@@ -104,7 +104,7 @@ test('a refresh every 2 s keeps the selection on the same item', async ($, on) =
   await $.command.run(INBOX)
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
   await ui.press({ key: 'row:itm_2' })
-  const selected = async (id: string) => (await ui.find({ key: `row:${id}` }))?.children.some(c => (c as { props?: { inverse?: boolean } }).props?.inverse === true)
+  const selected = async (id: string) => (await ui.find({ key: `row:${id}` }))?.text.startsWith('›')
   expect(await selected('itm_2')).toBe(true)
 
   // A new item arrives first in the list; the selection stays on itm_2.
@@ -126,6 +126,51 @@ test('a slow CLI never gets a second call while one runs', async ($, on) => {
   expect(cli.most()).toBe(1)
   // Ticks during a call fold into one more run after it, never a queue of them.
   expect(cli.calls.length).toBeLessThanOrEqual(4)
+})
+
+test('an answer for a view the person has left is dropped, and its rows never show under the new one', async ($, on) => {
+  const clock = mock.clock(on, { now: NOW })
+  const cli = engine(on, () => [item('itm_1', 'Active one')], { slowMs: 1000, clock })
+  // Every list the mod stores, by the call it answered.
+  const asked: string[] = []
+  on('state.set', (_, e, next) => {
+    if (e.plugin === 'agent-inbox' && e.key === 'list') asked.push((e.value as { asked: string }).asked)
+    return next(e)
+  })
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+  void $.command.run(INBOX)
+  await clock.settle()
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  // Mid-call, the person switches to History.
+  void ui.press({ key: 'view:history' })
+  await clock.settle()
+  expect(await ui.find({ key: 'row:itm_1' })).toBeUndefined()
+  await clock.advance(1000)
+  // The Active answer landed but was dropped; the History call follows, and until it answers
+  // the pane says it is loading rather than showing Active rows.
+  expect(cli.calls.map(c => c[2])).toEqual(['active', 'history'])
+  expect(asked.some(a => a.includes('active'))).toBe(false)
+  expect(await ui.find({ key: 'row:itm_1' })).toBeUndefined()
+  expect(await ui.find({ type: 'Text', text: /Loading/ })).toBeDefined()
+  await clock.advance(1000)
+  expect((await ui.find({ key: 'row:itm_1' }))?.text).toContain('Active one')
+  await ui.unmount()
+})
+
+test('an answer of an unexpected shape is shown in the pane, not left loading', async ($, on) => {
+  mock.clock(on, { now: NOW })
+  on('command.register', () => ({ value: { command: 'inbox' } }))
+  on('ui.open', () => ({ value: { isPlaced: true } }))
+  on('ui.panes', () => ({ value: [] }))
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+  on('process.run', () => ({
+    value: { exitCode: 0, stdout: JSON.stringify({ api_version: 1, ok: true, data: {} }), stderr: '', isStdoutTruncated: false, isStderrTruncated: false },
+  }))
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+  await $.command.run(INBOX)
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect((await ui.find({ type: 'Text', text: /MOD_ERROR/ }))?.text).toContain('MOD_ERROR: ')
+  await ui.unmount()
 })
 
 test('nothing is called while the pane is not on screen', async ($, on) => {

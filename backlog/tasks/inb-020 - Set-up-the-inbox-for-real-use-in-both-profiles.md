@@ -4,7 +4,7 @@ title: Set up the inbox for real use in both profiles
 status: To Do
 assignee: []
 created_date: '2026-10-22 07:10'
-updated_date: '2026-10-22 07:26'
+updated_date: '2026-10-22 13:40'
 labels:
   - 'type:chore'
   - mod
@@ -43,4 +43,6 @@ Owner approved 2026-10-22 (docs/decisions.md): at the end of the build, write pr
 
 <!-- SECTION:NOTES:BEGIN -->
 The fresh ccp session check of AC #2 is covered by the owner's install approval (decisions.md), not by the routing-only rule. If the real inbox is empty, submit one informational item from producer agent-inbox-setup, check it in both profiles, then acknowledge it so it moves to History.
+
+From INB-012 round 1 R1-MIN-3: verify whether the installed mod is read in place from the folder marketplace or copied into the plugin cache; if copied, `<mod>/../src/cli/main.ts` breaks and the mod needs a configured CLI path (preflight §7 item 7).
 <!-- SECTION:NOTES:END -->

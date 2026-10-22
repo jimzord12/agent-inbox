@@ -98,6 +98,7 @@ Each is checked in a disposable fixture dir in the `Agent Inbox` workspace, neve
 4. Workspace trust dialog in a new fixture dir: expected to put the attempt in `blocked` on first run; for a throwaway fixture folder the agent accepts it itself (AGENTS.md); any login or account prompt stops the run.
 5. Detached worker survives its caller closing: INB-007 runs `agent-inbox open` from a Claude session in a test-workspace tab and closes that tab (the spike saw the same with a mod; no mod needed here).
 6. `agent_session.value` equals the `--session-id` we passed.
+7. The installed mod still finds the CLI at `<mod>/../src/cli/main.ts` (INB-020): read in place from a folder marketplace, or copied into the plugin cache, where that path breaks.
 
 ### 7.1 Results of the first live launch (INB-007, 2026-10-22, work profile)
 

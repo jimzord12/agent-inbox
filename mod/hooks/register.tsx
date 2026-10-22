@@ -18,7 +18,7 @@ const SELECTED = { plugin: 'agent-inbox', key: 'selected' } as const
 const KNOWN = { plugin: 'agent-inbox', key: 'known' } as const
 
 const NO_FILTERS: InboxFilters = { profile: 'all', producer: 'all', kind: 'all', unread: 'all' }
-const EMPTY: InboxList = { rows: [], hasMore: false, refreshedAt: 0, error: null }
+const EMPTY: InboxList = { asked: '', rows: [], hasMore: false, refreshedAt: 0, error: null }
 const VIEWS: { id: InboxView; label: string; hotkey: string }[] = [
   { id: 'active', label: 'Active', hotkey: 'a' },
   { id: 'snoozed', label: 'Snoozed', hotkey: 's' },
@@ -47,6 +47,8 @@ async function cli($: EngineInterface, args: string[]): Promise<Envelope> {
   }
 }
 
+const askedKey = (view: InboxView, f: InboxFilters) => listArgs(view, f).join('\u0000')
+
 function listArgs(view: InboxView, f: InboxFilters): string[] {
   const args = ['list', '--view', view, '--limit', PAGE]
   if (f.profile !== 'all') args.push('--profile', f.profile)
@@ -60,6 +62,25 @@ function listArgs(view: InboxView, f: InboxFilters): string[] {
 // an answer for a view or filter the person has since left is dropped.
 let isBusy = false
 let isAsked = false
+// The view and filters last chosen, and a count bumped by every change. Fetches cannot rely on
+// re-reading `$.state`: every get of one dispatch reads the moment it began, so a change made
+// meanwhile would not show. After a reload (module variables start over) state is read instead.
+let choiceGen = 0
+let chosen: { view: InboxView; filters: InboxFilters } | null = null
+
+async function currentChoice($: EngineInterface) {
+  if (chosen) return chosen
+  const { value: view = 'active' } = await $.state.get(VIEW)
+  const { value: filters = NO_FILTERS } = await $.state.get(FILTERS)
+  return { view, filters }
+}
+
+async function choose($: EngineInterface, choice: { view: InboxView; filters: InboxFilters }) {
+  choiceGen++
+  chosen = choice
+  await $.state.set(VIEW, choice.view)
+  await $.state.set(FILTERS, choice.filters)
+}
 
 async function refresh($: EngineInterface) {
   if (isBusy) {
@@ -77,23 +98,37 @@ async function refresh($: EngineInterface) {
   }
 }
 
+// Anything unexpected (an answer of another shape, a refused engine call) is shown in the pane
+// like a CLI error, never left as a pane stuck on "Loading…".
 async function fetchList($: EngineInterface) {
-  const { value: view = 'active' } = await $.state.get(VIEW)
-  const { value: filters = NO_FILTERS } = await $.state.get(FILTERS)
-  const asked = listArgs(view, filters)
-  const res = await cli($, asked)
+  try {
+    await fetchListOnce($)
+  } catch (err) {
+    const error = { code: 'MOD_ERROR', message: inertDeep(String((err as Error)?.message ?? err)) }
+    const { view, filters } = await currentChoice($)
+    const asked = askedKey(view, filters)
+    const { value: prev = EMPTY } = await $.state.get(LIST)
+    await $.state.set(LIST, prev.asked === asked ? { ...prev, error } : { ...EMPTY, asked, error })
+  }
+}
+
+async function fetchListOnce($: EngineInterface) {
+  const { view, filters } = await currentChoice($)
+  const asked = askedKey(view, filters)
+  const gen = choiceGen
+  const res = await cli($, listArgs(view, filters))
   const now = await $.clock.now()
-  const { value: viewNow = 'active' } = await $.state.get(VIEW)
-  const { value: filtersNow = NO_FILTERS } = await $.state.get(FILTERS)
-  if (listArgs(viewNow, filtersNow).join('\u0000') !== asked.join('\u0000')) return
+  // The person moved to another view or filter meanwhile: that call is already asked for.
+  if (choiceGen !== gen) return
   const { value: prev = EMPTY } = await $.state.get(LIST)
   if (!res.ok) {
-    await $.state.set(LIST, { ...prev, error: res.error })
+    // Last known rows stay only if they are this view's.
+    await $.state.set(LIST, prev.asked === asked ? { ...prev, error: res.error } : { ...EMPTY, asked, error: res.error })
     return
   }
   const data = res.data as { items: Parameters<typeof toRow>[0][]; next_cursor: string | null }
   const rows = data.items.map(toRow)
-  await $.state.set(LIST, { rows, hasMore: data.next_cursor !== null, refreshedAt: now, error: null })
+  await $.state.set(LIST, { asked, rows, hasMore: data.next_cursor !== null, refreshedAt: now, error: null })
   const { value: known = { profiles: [], producers: [] } } = await $.state.get(KNOWN)
   const profiles = [...new Set([...known.profiles, ...rows.map(r => r.profile_id)])].sort()
   const producers = [...new Set([...known.producers, ...rows.map(r => r.producer_id)])].sort()
@@ -116,7 +151,9 @@ export const register: Register = on => {
     await $.command.register({ name: 'inbox', description: 'Show the agent inbox in a pane' })
     // Refreshes only while the pane is on screen; the CLI call is the cheap list query.
     $.clock.every(REFRESH_MS, () => {
-      void isVisible($).then(shown => (shown ? refresh($) : undefined))
+      void isVisible($)
+        .then(shown => (shown ? refresh($) : undefined))
+        .catch(err => $.ui.log(`agent-inbox: refresh failed: ${String((err as Error)?.message ?? err)}`, { to: 'debug' }))
     })
 
     return next(e)
@@ -139,14 +176,18 @@ export const register: Register = on => {
     const { value: known = { profiles: [], producers: [] } } = await $.state.get(KNOWN)
     const columns = Math.max(20, e.props.bodyColumns)
     const nowMs = list.refreshedAt || (await $.clock.now())
+    // Rows answered for another view or filter are never drawn under this one.
+    const isCurrent = list.asked === askedKey(view, filters)
+    const rows = isCurrent ? list.rows : []
 
     const setView = (id: InboxView) => async () => {
-      await $.state.set(VIEW, id)
+      const now = await currentChoice($)
+      await choose($, { ...now, view: id })
       await refresh($)
     }
     const setFilter = (patch: Partial<InboxFilters>) => async () => {
-      const { value: f = NO_FILTERS } = await $.state.get(FILTERS)
-      await $.state.set(FILTERS, { ...f, ...patch })
+      const now = await currentChoice($)
+      await choose($, { ...now, filters: { ...now.filters, ...patch } })
       await refresh($)
     }
     const profiles = ['all', ...known.profiles.filter(p => p !== 'all')]
@@ -168,21 +209,21 @@ export const register: Register = on => {
           <Button key="filter:kind" label={`kind: ${filters.kind}`} hotkey="k" onPress={setFilter({ kind: next(['all', 'actionable', 'informational'] as const, filters.kind) })} />
           <Button key="filter:unread" label={`unread: ${filters.unread === 'unread' ? 'only' : 'all'}`} hotkey="u" onPress={setFilter({ unread: filters.unread === 'all' ? 'unread' : 'all' })} />
         </Box>
-        {list.error && (
+        {isCurrent && list.error && (
           <Text color="error">
             {list.error.code}: {list.error.message}
           </Text>
         )}
-        {list.refreshedAt === 0 && !list.error && <Text dimColor>Loading…</Text>}
-        {list.refreshedAt > 0 && list.rows.length === 0 && <Text dimColor>Nothing in {view}.</Text>}
-        {list.rows.map(row => (
+        {!isCurrent && <Text dimColor>Loading…</Text>}
+        {isCurrent && list.refreshedAt > 0 && list.rows.length === 0 && <Text dimColor>Nothing in {view}.</Text>}
+        {rows.map(row => (
           <Button key={`row:${row.id}`} plain onPress={() => void $.state.set(SELECTED, row.id)}>
-            <Text inverse={row.id === selected} bold={!row.read} wrap="truncate-end">
-              {rowLine(row, view, nowMs, columns)}
+            <Text bold={!row.read} wrap="truncate-end">
+              {rowLine(row, view, nowMs, columns, row.id === selected)}
             </Text>
           </Button>
         ))}
-        {list.hasMore && <Text dimColor>Only the first {PAGE} are shown; narrow the filters to see the rest.</Text>}
+        {isCurrent && list.hasMore && <Text dimColor>Only the first {PAGE} are shown; narrow the filters to see the rest.</Text>}
       </Box>
     )
   })
