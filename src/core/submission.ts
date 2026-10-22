@@ -63,9 +63,9 @@ const REF_KEYS = new Set(["uri", "label", "sha256"]);
 const PRODUCER_ID = /^[a-z0-9]+(?:[._-][a-z0-9]+)*$/;
 const PROFILE_ID = /^[a-z0-9]+(?:[_-][a-z0-9]+)*$/;
 const SHA256 = /^[0-9a-f]{64}$/;
-// C0 controls except tab/LF/CR, plus DEL. Text containing these is rejected, not cleaned.
-const CONTROL_MULTILINE = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/;
-const CONTROL_SINGLE_LINE = /[\u0000-\u001F\u007F]/;
+// C0 controls except tab/LF/CR, DEL and C1 controls. Text containing these is rejected, not cleaned.
+const CONTROL_MULTILINE = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F-\u009F]/;
+const CONTROL_SINGLE_LINE = /[\u0000-\u001F\u007F-\u009F]/;
 
 const utf8 = new TextEncoder();
 
@@ -205,17 +205,19 @@ export function parseSubmission(raw: unknown, limits: Limits = DEFAULT_LIMITS): 
 
 // Reads the handoff once and keeps its exact bytes. Must be valid UTF-8 without NULs.
 export function captureHandoff(path: string, limits: Limits = DEFAULT_LIMITS): CapturedHandoff {
-  let size: number;
+  let bytes: Uint8Array;
   try {
     const st = statSync(path);
     if (!st.isFile()) invalid("`handoff_path` is not a file.", "handoff_path");
-    size = st.size;
+    if (st.size > limits.handoffBytes) invalid(`The handoff is larger than ${limits.handoffBytes} bytes.`, "handoff_path");
+    bytes = new Uint8Array(readFileSync(path));
   } catch (err) {
     if (err instanceof InboxError) throw err;
-    invalid(`Cannot read \`handoff_path\`: ${(err as NodeJS.ErrnoException).code ?? "error"}.`, "handoff_path");
+    const code = (err as NodeJS.ErrnoException).code ?? "error";
+    // On Windows a file still held by its writer or a scanner is briefly locked: worth a retry.
+    const transient = ["EBUSY", "EPERM", "EACCES", "EAGAIN"].includes(code);
+    throw new InboxError("INVALID_ITEM", `Cannot read \`handoff_path\`: ${code}.`, { field: "handoff_path", reason: code }, transient);
   }
-  if (size > limits.handoffBytes) invalid(`The handoff is larger than ${limits.handoffBytes} bytes.`, "handoff_path");
-  const bytes = new Uint8Array(readFileSync(path));
   if (bytes.length > limits.handoffBytes) invalid(`The handoff is larger than ${limits.handoffBytes} bytes.`, "handoff_path");
   if (bytes.length === 0) invalid("The handoff is empty.", "handoff_path");
   let text: string;

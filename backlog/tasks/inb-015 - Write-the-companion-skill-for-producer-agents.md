@@ -4,7 +4,7 @@ title: Write the companion skill for producer agents
 status: To Do
 assignee: []
 created_date: '2026-10-22 07:06'
-updated_date: '2026-10-22 07:19'
+updated_date: '2026-10-22 08:26'
 labels:
   - 'type:docs'
   - skill
@@ -32,3 +32,9 @@ Producer projects install a skill so their agents know when and how to submit: d
 - [ ] #2 Evidence named in the final summary, with what remains unverified
 - [ ] #3 Gates green: bun run typecheck and bun run test pass on the committed revision
 <!-- DOD:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+From INB-001 review N1: the companion skill must name the producer surface - submit, update, get, list, events, status - and say the other commands belong to the user.
+<!-- SECTION:NOTES:END -->

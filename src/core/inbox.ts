@@ -122,7 +122,8 @@ export interface InboxOptions {
 
 const MAX_PAGE = 200;
 const DEFAULT_PAGE = 50;
-const utf8Decoder = new TextDecoder();
+// ignoreBOM keeps a leading BOM, so the text re-encodes to exactly the retained bytes.
+const utf8Decoder = new TextDecoder("utf-8", { ignoreBOM: true });
 
 export class Inbox {
   readonly db: Database;
@@ -318,6 +319,12 @@ export class Inbox {
     return this.read(() =>
       // One read transaction, so the "latest" cursor matches the snapshot the page came from.
       this.db.transaction(() => {
+        // A cursor beyond this store (another home, or a restored backup) would silently skip
+        // every event up to it; refuse it so the consumer resets on purpose.
+        const latest = this.latestSeq();
+        if (after > latest) {
+          throw new InboxError("INVALID_ARGUMENT", "The `--after` cursor is ahead of this inbox.", { field: "after", latest_cursor: String(latest) });
+        }
         const rows = this.db
           .query(`SELECT * FROM events WHERE ${where.join(" AND ")} ORDER BY seq LIMIT ?`)
           .all(...params, limit + 1) as EventRow[];
@@ -325,7 +332,7 @@ export class Inbox {
         const hasMore = rows.length > limit;
         let next: number;
         if (hasMore) next = page[page.length - 1]!.seq;
-        else next = Math.max(after, this.latestSeq());
+        else next = latest;
         return { events: page.map(toEventView), next_cursor: String(next), has_more: hasMore };
       }).deferred(),
     );
@@ -348,7 +355,8 @@ export class Inbox {
   markUnread(itemId: string): ItemView {
     return this.write(() => {
       const item = this.itemRow(itemId);
-      if (item.read_revision === null) return this.toView(item);
+      // Already unread: never read, or read an older revision than the current one.
+      if (item.read_revision !== item.content_revision) return this.toView(item);
       this.bumpState(item.id, "read_revision = NULL", []);
       this.emit("item.read_changed", "user", item.id, item.producer_id, item.content_revision, null, { read: false });
       return this.toView(this.itemRow(item.id));

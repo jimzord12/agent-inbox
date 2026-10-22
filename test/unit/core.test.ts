@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { rmSync, writeFileSync } from "node:fs";
 import { Inbox } from "../../src/core/inbox";
+import { parseOffsetTime } from "../../src/core/clock";
 import { expectCode, type Fixture, fixture } from "../helpers";
 
 let f: Fixture;
@@ -266,7 +267,7 @@ describe("list, events and status", () => {
 
 describe("store", () => {
   test("uses WAL with the reset fix and survives reopening", () => {
-    expect(f.inbox.store).toMatchObject({ journalMode: "wal", walResetFix: true, schemaVersion: 2 });
+    expect(f.inbox.store).toMatchObject({ journalMode: "wal", walResetFix: true, schemaVersion: 3 });
     const { item } = f.inbox.submit(f.actionable());
     const again = new Inbox({ home: f.home });
     expect(again.get(item.id).id).toBe(item.id);
@@ -276,5 +277,45 @@ describe("store", () => {
   test("refuses a store with a newer schema", () => {
     f.inbox.db.run("INSERT INTO schema_migrations (version, applied_at) VALUES (99, 'x')");
     expectCode(() => new Inbox({ home: f.home }), "STORE_INCOMPATIBLE");
+  });
+});
+
+describe("review round 1 fixes", () => {
+  test("mark-unread on an item already unread after an update is a no-op", () => {
+    const { item } = f.inbox.submit(f.actionable());
+    f.inbox.markRead(item.id, 1);
+    const updated = f.inbox.update(item.id, 1, f.actionable({ title: "Second take" })).item;
+    const before = f.inbox.events({}).events.length;
+    expect(f.inbox.markUnread(item.id).state_version).toBe(updated.state_version);
+    expect(f.inbox.events({}).events.length).toBe(before);
+  });
+
+  test("an event cursor ahead of the store is refused with the latest cursor", () => {
+    f.inbox.submit(f.actionable());
+    const latest = f.inbox.events({}).next_cursor;
+    const e = expectCode(() => f.inbox.events({ after: String(Number(latest) + 50) }), "INVALID_ARGUMENT");
+    expect(e.details?.latest_cursor).toBe(latest);
+    expect(f.inbox.events({ after: latest })).toMatchObject({ events: [], next_cursor: latest });
+  });
+
+  test("impossible snooze times are refused instead of rolled over", () => {
+    for (const bad of ["2026-02-30T09:00:00+02:00", "2026-10-23T24:00:00Z", "2026-13-01T09:00Z", "2026-10-23T09:60Z", "2026-10-23T09:00+25:00"]) {
+      expect(parseOffsetTime(bad)).toBeNull();
+    }
+    expect(parseOffsetTime("2028-02-29T09:00:00+02:00")?.toISOString()).toBe("2028-02-29T07:00:00.000Z");
+    expect(parseOffsetTime("2026-10-23T09:00:00.5Z")?.toISOString()).toBe("2026-10-23T09:00:00.500Z");
+  });
+
+  test("a leading BOM survives, so the text re-encodes to the retained bytes", () => {
+    const p = f.writeHandoff("bom.md", "﻿# Notes\n");
+    const { item } = f.inbox.submit(f.actionable({ handoff_path: p }));
+    const rev = f.inbox.get(item.id, { includeContext: true }).revision;
+    expect(rev.handoff_text?.charCodeAt(0)).toBe(0xfeff);
+    expect(new TextEncoder().encode(rev.handoff_text!).length).toBe(rev.handoff!.bytes);
+  });
+
+  test("C1 control characters are rejected in text fields", () => {
+    expectCode(() => f.inbox.submit(f.actionable({ title: "Bad \u009B31m" })), "INVALID_ITEM");
+    expectCode(() => f.inbox.submit(f.actionable({ summary: "line\u0085break" })), "INVALID_ITEM");
   });
 });

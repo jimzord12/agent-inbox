@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { writeFileSync } from "node:fs";
+import { rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { type Fixture, fixture } from "../helpers";
 
@@ -130,5 +130,29 @@ describe("concurrency across processes", () => {
     expect(runs.filter((r) => r.out.ok)).toHaveLength(1);
     expect(runs.filter((r) => r.out.error?.code === "REVISION_CONFLICT")).toHaveLength(3);
     expect(f.inbox.get(item.id).content_revision).toBe(2);
+  });
+});
+
+describe("flag wiring", () => {
+  test("get --include-context returns the retained handoff after the original is deleted", () => {
+    const id = cli(["submit", "--input", inputFile(f.actionable())]).out.data.item.id;
+    rmSync(join(f.dir, "handoff.md"));
+    const r = cli(["get", id, "--include-context", "--json"]);
+    expect(r.out.data.item.revision.handoff_text).toContain("Seven records were rejected.");
+    expect(cli(["get", id]).out.data.item.revision.handoff_text).toBeUndefined();
+  });
+
+  test("list --cursor and filters, events --after round trip", () => {
+    for (let i = 0; i < 3; i++) cli(["submit", "--input", inputFile(f.informational({ external_id: `n-${i}` }), `n${i}.json`)]);
+    const p1 = cli(["list", "--limit", "2", "--kind", "informational", "--unread"]).out.data;
+    expect(p1.items).toHaveLength(2);
+    const p2 = cli(["list", "--limit", "2", "--cursor", p1.next_cursor]).out.data;
+    expect(p2.items).toHaveLength(1);
+    expect(cli(["list", "--profile", "nobody"]).out.data.items).toHaveLength(0);
+    const all = cli(["events"]).out.data;
+    const first = all.events[0].cursor;
+    const rest = cli(["events", "--after", first, "--producer", "example.reporter"]).out.data;
+    expect(rest.events.length).toBe(all.events.length - 1);
+    expect(rest.next_cursor).toBe(all.next_cursor);
   });
 });
