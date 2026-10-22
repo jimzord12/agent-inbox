@@ -19,7 +19,7 @@ export async function run(attemptId: string) {
       config = loadConfig(inbox.home);
     } catch (err) {
       const e = err instanceof InboxError ? err : new InboxError("INTERNAL", String(err));
-      failBeforeStart(inbox, attemptId, owner, e.code === "HERDR_UNAVAILABLE" ? e.code : "HERDR_UNAVAILABLE", e.message);
+      failBeforeStart(inbox, attemptId, owner, "HERDR_UNAVAILABLE", e.message);
       return;
     }
     const herdr = new Herdr({ socketPath: config.herdr.socket_path });

@@ -14,7 +14,7 @@ import { Inbox, type View } from "../core/inbox";
 import { profilesPath } from "../core/profiles";
 import { Herdr } from "../herdr/adapter";
 import { focusItem } from "../worker/focus";
-import { failBeforeStart } from "../worker/worker";
+import { failBeforeStart, needsWorker } from "../worker/worker";
 import { doctor } from "./doctor";
 
 type Flags = Record<string, string | boolean | string[] | undefined>;
@@ -125,8 +125,9 @@ const COMMANDS: Record<string, Command> = {
     positionals: 1,
     run: (inbox, [id], f) => {
       const { attempt, reused } = new Attempts(inbox()).open(id!, int(f, "if-revision"), { profile: str(f, "profile"), fresh: f.fresh === true });
-      // A reused attempt already has, or had, a worker; picking it up again is retry (INB-008).
-      if (!reused) startWorker(inbox(), attempt.id);
+      // A reused attempt gets a worker only when none ever ran on it and nothing external was
+      // recorded (e.g. the first worker died before its claim). Anything further is retry (INB-008).
+      if (!reused || needsWorker(inbox(), attempt.id)) startWorker(inbox(), attempt.id);
       const now = new Attempts(inbox()).get(attempt.id);
       return { attempt_id: now.id, status: now.status, reused, attempt: now };
     },

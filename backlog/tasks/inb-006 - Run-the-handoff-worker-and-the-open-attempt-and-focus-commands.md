@@ -5,7 +5,7 @@ status: In Review
 assignee:
   - '@claude'
 created_date: '2026-10-22 07:06'
-updated_date: '2026-10-22 10:36'
+updated_date: '2026-10-22 10:44'
 labels:
   - 'type:feature'
   - worker
@@ -62,4 +62,6 @@ From INB-005 round 1 N1: writeBridgeSettings defaults the hook script to import.
 From M1 round 2 N3: once dispatch has started, a timeout or doubt makes the attempt uncertain, not blocked; a blocked attempt refuses (erases) a late opening prompt.
 
 Built in f548845. Design choices for review: a failed workspace create/ensure fails the attempt with HERDR_UNAVAILABLE (no op exists for it; at worst an empty inbox workspace is left). After dispatch began, doubt means uncertain, never blocked (M1 N3). A failed agent read is never 'gone'. The dialog-blocked start is focused without an op (focus is idempotent and carries no context). The workspace id is remembered per socket in <home>\herdr-state.json. open starts a worker only for a new attempt; picking up a reused one is retry (INB-008). Evidence: test/unit/worker.test.ts (27), CLI open tests (detached worker ends the attempt after the CLI exited). Unverified until INB-007: real Herdr answers for agent start/prompt/focus, state_change_seq behaviour, and that the worker survives its caller's tab closing.
+
+Round 1 (docs/reviews/INB-006-r1.md): FINDINGS. F1 fixed: Attempts.resume(id, gen, onlyCode) lifts only the worker's own AGENT_BLOCKED in the same transaction, so a bridge verdict landing during the dialog wait is kept (test). F2 fixed: two tests, idle without a moved state and a moved state while working. F3 fixed: tests for the pane check before dispatch, session and pane re-checks after the receipt, the alias gone, abandon during the dialog wait, and the pane check in focus. F4 fixed: crashed() keeps an existing block or uncertainty, and fails with INTERNAL when nothing external happened (tests). F5 fixed: a missing session id after the receipt is looked at again (test). F6 fixed: open starts a worker for a reused attempt that no worker owns and that has nothing external recorded (needsWorker; tests); the async spawn-error handler stays empty because the CLI exits first, and this covers it. N1 accepted (two first-ever opens may create two inbox workspaces; the last one is remembered). N2 fixed (a failed state-file write is logged, not reported as Herdr down). N3 to INB-008 (the dispatch baseline is in the dispatch_prompt op detail; a retry worker reads it from there). N4 to INB-007 (check whether state_change_seq or completion_seq marks the opening turn's end on the real Herdr). N5 to INB-008 (retry action). N6 accepted: a reused attempt keeps its profile; to change it, abandon first. N7 fixed (label cuts by character). N8 fixed. N9 accepted (the dialog focus carries no context).
 <!-- SECTION:NOTES:END -->

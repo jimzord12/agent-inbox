@@ -88,7 +88,8 @@ export function agentAlias(attemptId: string): string {
 // Tab label for people: profile, short title, short attempt id. Never used for identity.
 export function tabLabel(profileId: string, title: string, attemptId: string): string {
   const clean = title.replace(/[\p{Cc}\p{Cf}]/gu, " ").replace(/\s+/g, " ").trim();
-  const short = clean.length > 24 ? `${clean.slice(0, 23)}…` : clean;
+  const chars = Array.from(clean);
+  const short = chars.length > 24 ? `${chars.slice(0, 23).join("")}…` : clean;
   return `${profileId} ${short} ${attemptId.slice(-6)}`;
 }
 
@@ -213,10 +214,15 @@ export class Worker {
     try {
       const ws = await this.d.herdr.ensureWorkspace({ workspaceId: readWorkspaceId(this.d.inbox.home, socket), label: this.d.config.herdr.workspace_label, cwd: a.cwd });
       workspaceId = ws.workspace.workspace_id;
-      if (ws.created) writeWorkspaceId(this.d.inbox.home, socket, workspaceId);
     } catch (err) {
       // No context exists anywhere yet; at worst an empty inbox workspace was left behind.
       return this.end("fail", "HERDR_UNAVAILABLE", `Herdr is not reachable: ${describe(err)}`);
+    }
+    try {
+      if (readWorkspaceId(this.d.inbox.home, socket) !== workspaceId) writeWorkspaceId(this.d.inbox.home, socket, workspaceId);
+    } catch (err) {
+      // Only costs a new workspace next time.
+      this.log(`could not remember the inbox workspace: ${describe(err)}`);
     }
     if (!this.begin("create_tab", { workspace_id: workspaceId })) return null;
     this.at.recordLayout(a.id, this.gen, { herdr_session: socket, workspace_id: workspaceId });
@@ -285,10 +291,13 @@ export class Worker {
     while (Date.now() < until) {
       await this.sleep(this.t.pollMs);
       this.check();
-      if (this.row.status !== "blocked") throw new Stop();
+      // Only the worker's own dialog block is lifted here. Anything else (the bridge refusing the
+      // profile or session, an abandon) is a verdict to keep, not to overwrite.
+      const now = this.row;
+      if (now.status !== "blocked" || now.error_code !== "AGENT_BLOCKED") throw new Stop();
       const info = await this.readAgent(alias);
       if (info && info.interactive_ready !== false && info.agent_status !== "blocked" && info.agent_session?.value) {
-        this.at.resume(this.attemptId, this.gen);
+        if (!this.at.resume(this.attemptId, this.gen, "AGENT_BLOCKED")) throw new Stop();
         this.at.finishOp(this.attemptId, this.gen, "start_agent", "confirmed", { after: "dialog" });
         return true;
       }
@@ -361,8 +370,14 @@ export class Worker {
       if (a.prompt_state === "accepted" && a.receipt_candidate_json) {
         const info = await this.readAgent(a.agent_alias!);
         if (info === null) return this.end("block", "AGENT_UNAVAILABLE", "Claude closed after acknowledging; the receipt is kept.");
-        if (info && (info.agent_session?.value !== a.session_uuid || info.pane_id !== a.pane_id)) {
+        // A missing session id is looked at again, as in verifyTarget; only a different one blocks.
+        const session = info?.agent_session?.value;
+        if (info && ((session && session !== a.session_uuid) || info.pane_id !== a.pane_id)) {
           return this.end("block", "AGENT_UNAVAILABLE", "Herdr no longer reports the attempt's session in its pane.");
+        }
+        if (info && !session) {
+          await this.sleep(this.t.pollMs);
+          continue;
         }
         if (info && (info.state_change_seq ?? -1) > baseline && (info.agent_status === "idle" || info.agent_status === "done")) return true;
       }
@@ -435,8 +450,13 @@ export class Worker {
     this.log(`stopped on an unexpected error: ${describe(err)}`);
     if (fenced(err)) return;
     try {
-      // Whatever ran is in the op log; leave it for the user instead of guessing.
-      this.at.markUncertain(this.attemptId, this.gen, "DELIVERY_UNCERTAIN", `The worker stopped unexpectedly: ${describe(err).slice(0, 200)}`);
+      const a = this.row;
+      // A block or uncertainty already recorded (often by the bridge) says more; keep it.
+      if (a.status !== "in_progress") return;
+      const message = `The worker stopped unexpectedly: ${describe(err).slice(0, 200)}`;
+      // Nothing external has happened yet: an honest failure. Otherwise leave it for the user.
+      if (!this.at.ops(a.id).length && a.prompt_state === "none") this.at.fail(a.id, this.gen, "INTERNAL", message);
+      else this.at.markUncertain(a.id, this.gen, "DELIVERY_UNCERTAIN", message);
     } catch {
       // The lease expires and reconcile (INB-009) takes over.
     }
@@ -475,4 +495,15 @@ export function failBeforeStart(inbox: Inbox, attemptId: string, owner: string, 
   const at = new Attempts(inbox);
   const gen = at.claim(attemptId, owner, 60_000);
   if (gen !== null) at.fail(attemptId, gen, code, message);
+}
+
+// An unfinished attempt no worker is running: never claimed, or its lease lapsed, with no
+// external step recorded. Starting a worker for it repeats nothing.
+export function needsWorker(inbox: Inbox, attemptId: string): boolean {
+  const at = new Attempts(inbox);
+  return inbox.read(() => {
+    const a = at.row(attemptId);
+    const leaseLive = !!a.lease_owner && !!a.lease_expires_at && a.lease_expires_at > inbox.now();
+    return a.status === "in_progress" && !a.revoked_at && !leaseLive && a.prompt_state === "none" && at.ops(a.id).length === 0;
+  });
 }

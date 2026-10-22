@@ -213,12 +213,14 @@ describe("open, attempt get", () => {
     expect(JSON.stringify(got)).not.toMatch(/capability|challenge/);
   });
 
-  test("a second open while the attempt is unfinished reuses it", () => {
+  test("a second open reuses the unfinished attempt, and starts a worker only if none ever ran", async () => {
     const item = setup();
     const at = new Attempts(f.inbox);
+    // Reserved, but its worker never claimed it (e.g. it died at start-up).
     const first = at.open(item.id, 1).attempt;
     const r = cli(["open", item.id, "--if-revision", "1"]);
     expect(r.out.data).toMatchObject({ attempt_id: first.id, reused: true });
+    expect(await settled(first.id)).toMatchObject({ status: "failed", error: { code: "CWD_UNAVAILABLE" } });
   });
 
   test("--profile records an override without changing the payload", async () => {

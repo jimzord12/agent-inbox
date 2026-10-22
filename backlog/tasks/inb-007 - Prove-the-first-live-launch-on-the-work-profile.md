@@ -4,7 +4,7 @@ title: Prove the first live launch on the work profile
 status: To Do
 assignee: []
 created_date: '2026-10-22 07:06'
-updated_date: '2026-10-22 08:37'
+updated_date: '2026-10-22 10:44'
 labels:
   - 'type:test'
   - live
@@ -45,4 +45,6 @@ Close the open points of docs/preflight.md section 7 for the work profile with a
 
 <!-- SECTION:NOTES:BEGIN -->
 From INB-003 review F2: during the first live launch, record the real Herdr answers for agent start (including agent_not_ready on a trust dialog), agent prompt, agent list, agent focus and workspace get, and swap them into test/unit/fixtures/herdr.ts, marked recorded.
+
+From INB-006 round 1 N4: confirm on the real Herdr which counter marks the end of the opening turn: the worker uses state_change_seq above the pre-dispatch baseline plus idle/done; preflight names completion_seq.
 <!-- SECTION:NOTES:END -->

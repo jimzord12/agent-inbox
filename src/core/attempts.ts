@@ -395,10 +395,16 @@ export class Attempts {
     this.transition(attemptId, gen, "failed", "handoff.failed", code, message);
   }
 
-  // Back to in_progress for an explicit retry, keeping phase, ops and evidence.
-  resume(attemptId: string, gen: number) {
-    this.fencedWrite(attemptId, gen, (a) => {
-      if (a.status !== "in_progress") this.patch(a.id, { status: "in_progress", error_code: null, error_message: null, last_rejection_json: null });
+  // Back to in_progress for an explicit retry, keeping phase, ops and evidence. With `onlyCode`,
+  // only a block or uncertainty carrying that code is lifted, in the same transaction, so a
+  // verdict someone else recorded meanwhile (e.g. the bridge) is never overwritten. Returns
+  // whether the attempt is now in progress.
+  resume(attemptId: string, gen: number, onlyCode?: string): boolean {
+    return this.fencedWrite(attemptId, gen, (a) => {
+      if (a.status === "in_progress") return true;
+      if (onlyCode !== undefined && a.error_code !== onlyCode) return false;
+      this.patch(a.id, { status: "in_progress", error_code: null, error_message: null, last_rejection_json: null });
+      return true;
     });
   }
 

@@ -8,7 +8,7 @@ import { READY_MARKER } from "../../src/core/packet";
 import { profilesPath } from "../../src/core/profiles";
 import { sha256Hex } from "../../src/core/submission";
 import { focusItem } from "../../src/worker/focus";
-import { STATE_FILE, Worker, agentAlias, tabLabel } from "../../src/worker/worker";
+import { STATE_FILE, Worker, agentAlias, needsWorker, tabLabel } from "../../src/worker/worker";
 import { FakeHerdr, type FakeHooks, SOCKET } from "./fixtures/fake-herdr";
 import { expectCode, type Fixture, fixture } from "../helpers";
 
@@ -340,5 +340,155 @@ describe("focus", () => {
     await expect(focusItem(f.inbox, () => new FakeHerdr().herdr(), attempt.item_id)).rejects.toMatchObject({ code: "STATE_CONFLICT" });
     expectCode(() => f.inbox.get("itm_nope"), "NOT_FOUND");
     expect(existsSync(f.home)).toBe(true);
+  });
+});
+
+describe("review round 1: each guard has a test that fails without it", () => {
+  test("a dialog wait never lifts a block the bridge set: its code and reason stay", async () => {
+    const attempt = openAttempt();
+    const hooks = bridge({ bind: "wrong-dir" });
+    let gets = 0;
+    const fake = new FakeHerdr({
+      ...hooks,
+      onStart: (a) => ((a.agent_status = "blocked"), (a.interactive_ready = false), { error: "agent_not_ready" }),
+      onGet: (a) => {
+        if (++gets === 2) {
+          a.agent_status = "idle";
+          a.interactive_ready = true;
+          hooks.onStart!(a, []);
+        }
+      },
+    });
+    const view = await runWorker(fake, attempt.id);
+    expect(view).toMatchObject({ status: "blocked", error: { code: "PROFILE_LAUNCH_UNSUPPORTED" } });
+    expect(view!.evidence.last_rejection).toMatchObject({ stage: "bind" });
+    expect(fake.verbs()).not.toContain("agent prompt");
+  });
+
+  test("an abandon during the dialog wait stops the worker", async () => {
+    const attempt = openAttempt();
+    const fake = new FakeHerdr({
+      ...bridge(),
+      onStart: (a) => ((a.agent_status = "blocked"), { error: "agent_not_ready" }),
+      onGet: () => at.abandon(attempt.id),
+    });
+    expect(await runWorker(fake, attempt.id)).toMatchObject({ status: "failed", error: { code: "ABANDONED" } });
+    expect(fake.verbs()).not.toContain("agent prompt");
+  });
+
+  test("settled means a new state: an idle agent whose state did not move is not settled", async () => {
+    const attempt = openAttempt();
+    const hooks = bridge({ settle: false });
+    const fake = new FakeHerdr({ ...hooks, onPrompt: (a, t) => void (hooks.onPrompt!(a, t), (a.agent_status = "idle")) });
+    expect(await runWorker(fake, attempt.id)).toMatchObject({ status: "blocked", evidence: { receipt_candidate: true, delivered: false } });
+    expect(fake.focused).toHaveLength(0);
+  });
+
+  test("settled means idle or done: a moved state while still working is not settled", async () => {
+    const attempt = openAttempt();
+    const hooks = bridge({ settle: false });
+    const fake = new FakeHerdr({ ...hooks, onPrompt: (a, t) => void (hooks.onPrompt!(a, t), (a.state_change_seq += 5)) });
+    expect(await runWorker(fake, attempt.id)).toMatchObject({ status: "blocked", evidence: { delivered: false } });
+    expect(fake.focused).toHaveLength(0);
+  });
+
+  test("the alias in another pane blocks before dispatch", async () => {
+    const attempt = openAttempt();
+    const hooks = bridge();
+    const fake = new FakeHerdr({ ...hooks, onStart: (a, args) => void (hooks.onStart!(a, args), (a.pane_id = "w9:p9")) });
+    expect(await runWorker(fake, attempt.id)).toMatchObject({ status: "blocked", phase: "start_agent", error: { code: "AGENT_UNAVAILABLE" } });
+    expect(fake.verbs()).not.toContain("agent prompt");
+  });
+
+  test("a different session or pane after the receipt blocks without focus", async () => {
+    for (const change of ["session", "pane"] as const) {
+      const attempt = openAttempt({ external_id: change });
+      const hooks = bridge();
+      const fake = new FakeHerdr({
+        ...hooks,
+        onPrompt: (a, t) => {
+          hooks.onPrompt!(a, t);
+          if (change === "session") a.session = "00000000-0000-4000-8000-000000000000";
+          else a.pane_id = "w9:p9";
+        },
+      });
+      expect(await runWorker(fake, attempt.id)).toMatchObject({ status: "blocked", phase: "await_receipt", error: { code: "AGENT_UNAVAILABLE" } });
+      expect(fake.focused).toHaveLength(0);
+    }
+  });
+
+  test("the alias gone after the receipt blocks without focus; the receipt is kept", async () => {
+    const attempt = openAttempt();
+    const hooks = bridge();
+    const fake = new FakeHerdr({ ...hooks, onPrompt: (a, t) => void (hooks.onPrompt!(a, t), fake.agents.delete(a.name)) });
+    expect(await runWorker(fake, attempt.id)).toMatchObject({ status: "blocked", error: { code: "AGENT_UNAVAILABLE" }, evidence: { receipt_candidate: true } });
+    expect(fake.focused).toHaveLength(0);
+  });
+
+  test("a session id briefly missing after the receipt is looked at again, not blocked", async () => {
+    const attempt = openAttempt();
+    const hooks = bridge();
+    let hidden = 0;
+    const fake = new FakeHerdr({ ...hooks });
+    fake.hooks.onPrompt = (a, t) => {
+      hooks.onPrompt!(a, t);
+      const session = a.session;
+      a.session = null;
+      fake.hooks.onGet = (g) => {
+        if (++hidden === 2) g.session = session;
+      };
+    };
+    expect(await runWorker(fake, attempt.id)).toMatchObject({ status: "succeeded" });
+  });
+
+  test("focus refuses the alias in another pane", async () => {
+    const attempt = openAttempt();
+    const fake = new FakeHerdr(bridge());
+    await runWorker(fake, attempt.id);
+    fake.agents.get(agentAlias(attempt.id))!.pane_id = "w9:p9";
+    const before = fake.focused.length;
+    await expect(focusItem(f.inbox, () => fake.herdr(), attempt.item_id)).rejects.toMatchObject({ code: "AGENT_UNAVAILABLE" });
+    expect(fake.focused.length).toBe(before);
+  });
+
+  test("an unexpected error keeps a block the bridge already set", async () => {
+    const attempt = openAttempt();
+    const fake = new FakeHerdr({
+      ...bridge(),
+      // The bridge blocks the attempt while Herdr's answer to the focus is on its way, then the
+      // worker's own write fails because it no longer may deliver.
+      before: (verb) => {
+        if (verb === "agent focus") {
+          const row = at.row(attempt.id);
+          at.bind(row.id, row.capability, { session_id: "00000000-0000-4000-8000-000000000000", cwd: row.cwd, claude_config_dir: workDir, auth_env: [] });
+        }
+      },
+    });
+    expect(await runWorker(fake, attempt.id)).toMatchObject({ status: "blocked", error: { code: "RECEIPT_INVALID" } });
+  });
+
+  test("an unexpected error before any external step fails honestly instead of uncertain", async () => {
+    const attempt = openAttempt();
+    // The packet path is a directory, so writing the packet throws inside preflight.
+    mkdirSync(join(bridgeFiles(f.home, attempt.id).dir, "packet.md"), { recursive: true });
+    expect(await runWorker(new FakeHerdr(), attempt.id)).toMatchObject({ status: "failed", error: { code: "INTERNAL" } });
+  });
+
+  test("needsWorker: only an unowned in-progress attempt with nothing external recorded", () => {
+    const attempt = openAttempt();
+    expect(needsWorker(f.inbox, attempt.id)).toBe(true);
+    const gen = at.claim(attempt.id, "w", 60_000)!;
+    expect(needsWorker(f.inbox, attempt.id)).toBe(false);
+    at.release(attempt.id, gen);
+    expect(needsWorker(f.inbox, attempt.id)).toBe(true);
+    const g2 = at.claim(attempt.id, "w", 60_000)!;
+    at.beginOp(attempt.id, g2, "create_tab");
+    at.release(attempt.id, g2);
+    expect(needsWorker(f.inbox, attempt.id)).toBe(false);
+  });
+
+  test("tab labels never split a character", () => {
+    const label = tabLabel("work", `${"x".repeat(22)}😀😀😀`, "att_1_abcdef123456");
+    expect(label).toBe(`work ${"x".repeat(22)}😀… 123456`);
   });
 });
