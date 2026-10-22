@@ -7,7 +7,9 @@ import { type InboxConfig } from "../../src/core/config";
 import { READY_MARKER } from "../../src/core/packet";
 import { profilesPath } from "../../src/core/profiles";
 import { sha256Hex } from "../../src/core/submission";
+import { RECEIPT_PENDING_FILE } from "../../src/bridge/hooks";
 import { focusItem } from "../../src/worker/focus";
+import { reconcile } from "../../src/worker/reconcile";
 import { STATE_FILE, Worker, agentAlias, needsWorker, tabLabel } from "../../src/worker/worker";
 import { FakeHerdr, type FakeHooks, SOCKET } from "./fixtures/fake-herdr";
 import { expectCode, type Fixture, fixture } from "../helpers";
@@ -775,5 +777,139 @@ describe("INB-008 review round 2", () => {
     });
     const view = await runWorker(fake, attempt.id);
     expect(view!.error!.message).toContain("does not report its session id");
+  });
+});
+
+describe("reconcile (INB-009)", () => {
+  const count = (fake: FakeHerdr, verb: string) => fake.verbs().filter((v) => v === verb).length;
+  const pendingPath = (id: string) => join(bridgeFiles(f.home, id).dir, RECEIPT_PENDING_FILE);
+
+  test("an expired lease lets another owner in and fences the old worker out of every write", async () => {
+    const attempt = openAttempt();
+    let taken = false;
+    const fake = new FakeHerdr({
+      ...bridge({ settle: false }),
+      onGet: () => {
+        if (taken || !at.row(attempt.id).receipt_candidate_json) return;
+        // The worker stalls (e.g. the machine slept); its lease lapses and someone else claims.
+        f.clock.advance(5_000);
+        expect(at.claim(attempt.id, "other", 60_000)).not.toBeNull();
+        taken = true;
+      },
+    });
+    currentId = attempt.id;
+    const view = await new Worker(attempt.id, { inbox: f.inbox, herdr: fake.herdr(), config, owner: "w-old", timing: { ...timing, leaseMs: 30 } }).run();
+    expect(taken).toBe(true);
+    // The old worker stopped without blocking, failing or focusing anything.
+    expect(view).toMatchObject({ status: "in_progress", error: null });
+    expect(at.row(attempt.id).lease_owner).toBe("other");
+    expect(fake.focused).toHaveLength(0);
+  });
+
+  test("a lost tab-create answer: retry records orphan candidates by provenance and still starts nothing", async () => {
+    const attempt = openAttempt();
+    const fake = new FakeHerdr({ ...bridge(), onTabCreate: () => ({ timeout: true }) });
+    await runWorker(fake, attempt.id);
+    const view = await runWorker(fake, attempt.id, true);
+    const tab = fake.tabs[0]!.tab_id;
+    expect(view).toMatchObject({ status: "uncertain", error: { code: "DELIVERY_UNCERTAIN" } });
+    expect(view!.error!.message).toContain(tab);
+    expect(JSON.parse(at.ops(attempt.id).find((o) => o.op === "create_tab")!.detail_json!).candidate_tabs).toEqual([tab]);
+    expect(at.row(attempt.id).pane_id).toBeNull();
+    expect(count(fake, "agent start")).toBe(0);
+    expect(count(fake, "tab create")).toBe(1);
+  });
+
+  test("a receipt the bridge could not store is replayed by reconcile, then retry delivers without a second prompt", async () => {
+    const attempt = openAttempt();
+    const fake = new FakeHerdr(bridge({ receipt: false }));
+    expect(await runWorker(fake, attempt.id)).toMatchObject({ status: "blocked", error: { code: "RECEIPT_INVALID" } });
+    const row = at.row(attempt.id);
+    writeFileSync(pendingPath(row.id), JSON.stringify({ attempt_id: row.id, session_id: row.session_uuid, last_assistant_message: marker(row), written_at: "x" }));
+    expect(reconcile(f.inbox).receipts_replayed).toBe(1);
+    expect(existsSync(pendingPath(row.id))).toBe(false);
+    expect(at.get(row.id).evidence.receipt_candidate).toBe(true);
+    expect(await runWorker(fake, attempt.id, true)).toMatchObject({ status: "succeeded" });
+    expect(count(fake, "agent prompt")).toBe(1);
+  });
+
+  test("a stale or forged pending receipt is checked like any bridge evidence and removed", async () => {
+    const attempt = openAttempt();
+    await runWorker(new FakeHerdr(bridge({ receipt: false })), attempt.id);
+    const row = at.row(attempt.id);
+    const bodies: unknown[] = [
+      { attempt_id: row.id, session_id: "00000000-0000-4000-8000-000000000000", last_assistant_message: marker(row) },
+      { attempt_id: "att_other", session_id: row.session_uuid, last_assistant_message: marker(row) },
+      "{ broken",
+    ];
+    for (const body of bodies) {
+      writeFileSync(pendingPath(row.id), typeof body === "string" ? body : JSON.stringify(body));
+      expect(reconcile(f.inbox).receipts_replayed).toBe(0);
+      expect(existsSync(pendingPath(row.id))).toBe(false);
+    }
+    expect(at.get(row.id).evidence.receipt_candidate).toBe(false);
+  });
+
+  test("a worker that died between focus and commit: reconcile commits, calling nothing", async () => {
+    const attempt = openAttempt();
+    const fake = new FakeHerdr(bridge());
+    await runWorker(fake, attempt.id);
+    // Rewind to the moment after the confirmed focus, before the commit.
+    f.inbox.db.run("UPDATE attempts SET status = 'in_progress', receipt_json = NULL, focus_json = NULL, lease_owner = NULL, lease_expires_at = NULL WHERE id = ?", [attempt.id]);
+    f.inbox.db.run("UPDATE items SET archived_at = NULL, archive_reason = NULL WHERE id = ?", [attempt.item_id]);
+    const calls = fake.calls.length;
+    expect(reconcile(f.inbox).delivered).toEqual([attempt.id]);
+    expect(at.get(attempt.id)).toMatchObject({ status: "succeeded", evidence: { delivered: true, focused: true } });
+    expect(fake.calls.length).toBe(calls);
+  });
+
+  test("a worker that died mid-way becomes uncertain; one that did nothing external, or still holds its lease, is left alone", () => {
+    const died = openAttempt({ external_id: "died" });
+    const g = at.claim(died.id, "w", 60_000)!;
+    at.beginOp(died.id, g, "create_tab", { workspace_id: "w1" });
+    f.clock.advance(61_000);
+    const fresh = openAttempt({ external_id: "fresh" });
+    const held = openAttempt({ external_id: "held" });
+    const g2 = at.claim(held.id, "w2", 60_000)!;
+    at.beginOp(held.id, g2, "create_tab");
+    const r = reconcile(f.inbox);
+    expect(r.marked_uncertain).toEqual([died.id]);
+    expect(at.get(died.id)).toMatchObject({ status: "uncertain", error: { code: "DELIVERY_UNCERTAIN" } });
+    expect(at.get(fresh.id).status).toBe("in_progress");
+    expect(at.get(held.id).status).toBe("in_progress");
+    expect(at.row(held.id).lease_owner).toBe("w2");
+  });
+
+  test("reconcile leaves blocked and uncertain attempts to the user and never claims them", async () => {
+    const attempt = openAttempt();
+    await runWorker(new FakeHerdr(bridge({ receipt: false })), attempt.id);
+    const before = at.row(attempt.id);
+    reconcile(f.inbox);
+    const after = at.row(attempt.id);
+    expect({ status: after.status, gen: after.fencing_generation }).toEqual({ status: before.status, gen: before.fencing_generation });
+  });
+
+  test("after a Herdr restart, a new occupant of the old pane is never taken for the session", async () => {
+    // Before dispatch: the start ended unclear, then Herdr restarted with another Claude in the pane.
+    const a1 = openAttempt({ external_id: "a1" });
+    const hooks = bridge();
+    const fake = new FakeHerdr({ ...hooks, onStart: (a, args) => (hooks.onStart!(a, args), { timeout: true }) });
+    await runWorker(fake, a1.id);
+    fake.agents.get(agentAlias(a1.id))!.session = "11111111-1111-4111-8111-111111111111";
+    expect(await runWorker(fake, a1.id, true)).toMatchObject({ status: "uncertain" });
+    expect(count(fake, "agent prompt")).toBe(0);
+    // Started and bound, but no receipt; after the restart the alias names another session.
+    const a2 = openAttempt({ external_id: "a2" });
+    const fake2 = new FakeHerdr(bridge({ receipt: false }));
+    await runWorker(fake2, a2.id);
+    fake2.agents.get(agentAlias(a2.id))!.session = "22222222-2222-4222-8222-222222222222";
+    expect(await runWorker(fake2, a2.id, true)).toMatchObject({ status: "blocked", error: { code: "AGENT_UNAVAILABLE" } });
+    expect(fake2.focused).toHaveLength(0);
+    // After the restart the alias is gone altogether.
+    const a3 = openAttempt({ external_id: "a3" });
+    const fake3 = new FakeHerdr(bridge({ receipt: false }));
+    await runWorker(fake3, a3.id);
+    fake3.agents.clear();
+    expect(await runWorker(fake3, a3.id, true)).toMatchObject({ status: "blocked", error: { code: "AGENT_UNAVAILABLE" } });
   });
 });

@@ -238,7 +238,7 @@ export class Worker {
     if (this.d.retry) {
       const st = this.opState("create_tab");
       if (st === "failed") this.at.clearFailedOp(a.id, this.gen, "create_tab");
-      else if (st) return this.end("uncertain", "DELIVERY_UNCERTAIN", `Tab creation is ${st} with no recorded tab; reconcile or abandon.`);
+      else if (st) return this.orphanTabs(st);
     }
     const socket = this.d.config.herdr.socket_path;
     let workspaceId: string;
@@ -276,6 +276,27 @@ export class Worker {
       this.at.finishOp(a.id, this.gen, "create_tab", "uncertain", { code: herdrCode(err) });
       return this.end("uncertain", "DELIVERY_UNCERTAIN", `Tab creation may have happened: ${describe(err)}`);
     }
+  }
+
+  // A tab creation whose answer was lost may have left a tab (spec §13). Candidates are found by
+  // provenance, the attempt's short id in the label, and recorded so the user can inspect or
+  // close them. A label alone never identifies the attempt's pane and no session is bound yet,
+  // so nothing is started there: the attempt stays uncertain until abandoned.
+  private async orphanTabs(st: string): Promise<null> {
+    const a = this.row;
+    const workspaceId = this.opDetail("create_tab")?.workspace_id;
+    let candidates: string[] = [];
+    if (typeof workspaceId === "string") {
+      try {
+        const suffix = ` ${a.id.slice(-6)}`;
+        candidates = (await this.d.herdr.tabs(workspaceId)).filter((t) => t.label.endsWith(suffix)).map((t) => t.tab_id);
+      } catch (err) {
+        this.log(`tab list failed (${herdrCode(err)}); no candidates checked`);
+      }
+    }
+    this.at.finishOp(a.id, this.gen, "create_tab", "uncertain", { candidate_tabs: candidates });
+    const seen = candidates.length ? `possible orphan tab(s) ${candidates.join(", ")}` : "no tab with this attempt's id was found";
+    return this.end("uncertain", "DELIVERY_UNCERTAIN", `Tab creation is ${st} with no recorded tab; ${seen}. Abandon, then close any orphan tab.`);
   }
 
   // ---- start_agent ----------------------------------------------------------

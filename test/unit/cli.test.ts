@@ -280,6 +280,20 @@ describe("open, attempt get", () => {
     live.close();
   });
 
+  test("reading an attempt reconciles a dead worker's attempt first, launching nothing", () => {
+    const item = setup();
+    const live = new Inbox({ home: f.home });
+    const at = new Attempts(live);
+    const { attempt } = at.open(item.id, 1);
+    // A worker that claimed, recorded a tab creation, then died: its 1 ms lease is already over.
+    const g = at.claim(attempt.id, "dead", 1)!;
+    at.beginOp(attempt.id, g, "create_tab", { workspace_id: "w1" });
+    live.close();
+    const got = cli(["attempt", "get", attempt.id]).out.data.attempt;
+    expect(got).toMatchObject({ status: "uncertain", error: { code: "DELIVERY_UNCERTAIN" } });
+    expect(got.next_actions).toContain("retry");
+  });
+
   test("retry refuses a wrong-profile block and starts nothing", () => {
     const item = setup();
     const at = new Attempts(f.inbox);

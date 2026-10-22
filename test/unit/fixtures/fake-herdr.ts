@@ -29,6 +29,8 @@ export interface FakeHooks {
   before?(verb: string, args: string[]): Reply | void;
   // On each `agent get`: lets a test change the agent over time.
   onGet?(agent: FakeAgent): void;
+  // After `tab create` made the tab: return a reply to lose the answer (the tab stays).
+  onTabCreate?(tabId: string): Reply | void;
 }
 
 export class FakeHerdr {
@@ -117,10 +119,16 @@ export class FakeHerdr {
           }
         });
         this.tabs.push({ tab_id: id, workspace_id: ws, label: this.flag(rest, "--label"), env, cwd: this.flag(rest, "--cwd") });
+        const lost = this.reply(this.hooks.onTabCreate?.(id) ?? undefined);
+        if (lost) return lost;
         return this.ok("tab_created", {
           tab: { tab_id: id, workspace_id: ws, label: this.flag(rest, "--label"), pane_count: 1 },
           root_pane: { pane_id: `${id}:p`, tab_id: id, workspace_id: ws, terminal_id: "t", agent_status: "unknown" },
         });
+      }
+      case "tab list": {
+        const ws = this.flag(rest, "--workspace");
+        return this.ok("tab_list", { tabs: this.tabs.filter((t) => t.workspace_id === ws).map((t) => ({ tab_id: t.tab_id, workspace_id: t.workspace_id, label: t.label, pane_count: 1 })) });
       }
       case "agent start": {
         const name = rest[0]!;

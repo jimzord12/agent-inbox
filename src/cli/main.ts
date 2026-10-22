@@ -14,6 +14,7 @@ import { Inbox, type View } from "../core/inbox";
 import { profilesPath } from "../core/profiles";
 import { Herdr } from "../herdr/adapter";
 import { focusItem } from "../worker/focus";
+import { reconcile } from "../worker/reconcile";
 import { failBeforeStart, needsWorker } from "../worker/worker";
 import { doctor } from "./doctor";
 
@@ -211,6 +212,7 @@ const COMMANDS: Record<string, Command> = {
 };
 
 const WORKER = join(import.meta.dir, "..", "worker", "main.ts");
+const RECONCILES = new Set(["get", "list", "status", "open", "attempt", "retry", "focus"]);
 
 // Detached with stdio ignored: an inherited pipe would hold the caller (the mod) until timeout.
 // `failOnError`: a new attempt that no worker could start has done nothing external and fails
@@ -288,7 +290,14 @@ export async function main(argv: string[]) {
     if (parsed.positionals.length !== cmd.positionals) {
       usage(cmd.positionals ? `\`${name}\` takes ${cmd.positionals} argument(s), e.g. an item id.` : `\`${name}\` takes no arguments.`);
     }
-    const lazyInbox = () => (inbox ??= new Inbox({ home: resolveHome() }));
+    const lazyInbox = () => {
+      if (inbox) return inbox;
+      inbox = new Inbox({ home: resolveHome() });
+      // Commands that read attempts first bring unfinished ones up to date (INB-009); this never
+      // launches, sends or focuses anything.
+      if (RECONCILES.has(name!)) reconcile(inbox);
+      return inbox;
+    };
     const data = await cmd.run(lazyInbox, parsed.positionals, parsed.values);
     inbox?.close();
     emit({ api_version: 1, ok: true, data }, 0);
