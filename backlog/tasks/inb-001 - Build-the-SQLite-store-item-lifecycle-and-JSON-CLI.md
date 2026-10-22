@@ -1,11 +1,11 @@
 ---
 id: INB-001
 title: 'Build the SQLite store, item lifecycle and JSON CLI'
-status: In Review
+status: Done
 assignee:
   - '@claude'
 created_date: '2026-10-22 07:05'
-updated_date: '2026-10-22 08:26'
+updated_date: '2026-10-22 08:33'
 labels:
   - 'type:feature'
   - core
@@ -24,22 +24,22 @@ Phase 1 of the spec (docs/generic-agent-inbox-spec.md §5-§8, §16). Producers 
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 submit is idempotent on (producer_id, external_id); different content returns IDEMPOTENCY_CONFLICT
-- [ ] #2 update needs the expected content revision and creates an unread revision; history items and stale revisions are refused
-- [ ] #3 read/unread, snooze, archive, restore and acknowledge are independent; snooze, unsnooze, archive, restore and acknowledge are guarded by state_version, mark-read by the displayed revision
-- [ ] #4 list pages with a stable cursor over Active/Snoozed/History with profile/producer/kind/unread filters
-- [ ] #5 events are ordered, replayable and an empty poll returns the latest safe cursor
-- [ ] #6 the CLI prints one JSON envelope; exit 0 success, 1 domain error, 2 bad input
-- [ ] #7 concurrent submits/updates/state changes from separate processes keep exactly one winner (tested)
-- [ ] #8 deleting the producer's original handoff file leaves the retained handoff readable through get --include-context
-- [ ] #9 no producer-facing command can archive an item, declare delivery or change read or snooze state
+- [x] #1 submit is idempotent on (producer_id, external_id); different content returns IDEMPOTENCY_CONFLICT
+- [x] #2 update needs the expected content revision and creates an unread revision; history items and stale revisions are refused
+- [x] #3 read/unread, snooze, archive, restore and acknowledge are independent; snooze, unsnooze, archive, restore and acknowledge are guarded by state_version, mark-read by the displayed revision
+- [x] #4 list pages with a stable cursor over Active/Snoozed/History with profile/producer/kind/unread filters
+- [x] #5 events are ordered, replayable and an empty poll returns the latest safe cursor
+- [x] #6 the CLI prints one JSON envelope; exit 0 success, 1 domain error, 2 bad input
+- [x] #7 concurrent submits/updates/state changes from separate processes keep exactly one winner (tested)
+- [x] #8 deleting the producer's original handoff file leaves the retained handoff readable through get --include-context
+- [x] #9 no producer-facing command can archive an item, declare delivery or change read or snooze state
 <!-- AC:END -->
 
 ## Definition of Done
 <!-- DOD:BEGIN -->
-- [ ] #1 Review loop PASS (docs/practices/review.md), report stored under docs/reviews/
-- [ ] #2 Evidence named in the final summary, with what remains unverified
-- [ ] #3 Gates green: bun run typecheck and bun run test pass on the committed revision
+- [x] #1 Review loop PASS (docs/practices/review.md), report stored under docs/reviews/
+- [x] #2 Evidence named in the final summary, with what remains unverified
+- [x] #3 Gates green: bun run typecheck and bun run test pass on the committed revision
 <!-- DOD:END -->
 
 ## Implementation Plan
@@ -52,4 +52,12 @@ Phase 1 of the spec (docs/generic-agent-inbox-spec.md §5-§8, §16). Producers 
 
 <!-- SECTION:NOTES:BEGIN -->
 Review round 1 (docs/reviews/INB-001-r1.md, PASS with minors) dispositions: F1 fixed (mark-unread no-op when already unread). F2 fixed (events refuses a cursor ahead of the store with INVALID_ARGUMENT and details.latest_cursor). F3 fixed (impossible dates, hour 24 and offsets over 23:59 refused). F4 fixed (BOM kept; text re-encodes to the retained bytes; also in attempts.ts packet build). F5 fixed (CLI tests for get --include-context after deletion, list --cursor and filters, events --after). F6 fixed (criterion 3 reworded to match spec 8). F7 fixed (C1 controls rejected). F8 fixed (locked handoff file gives a retryable INVALID_ITEM; read moved inside the try). N1 carried to INB-015 (name the producer surface). N2 accepted: writes re-check under their own transaction; views may mix moments, nothing is corrupted. N3, N4 accepted (attempt summary arrives with the attempt command, INB-006). Fixes went to a fresh round 2.
+
+Review round 2 (docs/reviews/INB-001-r2.md): PASS. R2-F1 and R2-F2 (Minor) are carried to the M1 milestone loop INB-021, which re-reviews this code anyway; fixing them here would only restart this loop for a test and an error-code choice. N1 (cursor epoch) accepted for MVP; N2 belongs to INB-002; N3 accepted.
 <!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Store, lifecycle and JSON CLI (8957d5c) plus round-1 fixes (81f2168): idempotent submit, revisioned update, independent attention and placement guarded by state_version (mark-read by revision), cursor paging, replayable events that refuse a cursor ahead of the store, one JSON envelope with exit 0/1/2. Evidence: test/unit/core.test.ts and cli.test.ts (cross-process concurrency with real processes), review rounds docs/reviews/INB-001-r1.md (PASS, minors fixed) and r2.md (PASS); gate 134 pass at d160fac. Unverified: real backup-restore cursor behaviour (N1), and the locked-file path has no test (carried to INB-021).
+<!-- SECTION:FINAL_SUMMARY:END -->

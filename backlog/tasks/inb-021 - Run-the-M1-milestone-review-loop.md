@@ -4,7 +4,7 @@ title: Run the M1 milestone review loop
 status: To Do
 assignee: []
 created_date: '2026-10-22 07:14'
-updated_date: '2026-10-22 07:20'
+updated_date: '2026-10-22 08:33'
 labels:
   - 'type:review'
 milestone: m-0
@@ -33,3 +33,9 @@ Closed review loop on the combined result of milestone M1 against its goal and e
 - [ ] #2 Evidence named in the final summary, with what remains unverified
 - [ ] #3 Gates green: bun run typecheck and bun run test pass on the committed revision
 <!-- DOD:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Carried from INB-001 round 2: R2-F1 (CLI filter test must discriminate --kind, --unread and --producer with a second producer and kind) and R2-F2 (a locked handoff file gives a retryable INVALID_ITEM with exit 2; decide a non-usage code such as HANDOFF_UNAVAILABLE with exit 1, plus a test). Fix both in the milestone round so the M1 review covers them.
+<!-- SECTION:NOTES:END -->
