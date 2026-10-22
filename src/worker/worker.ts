@@ -114,11 +114,17 @@ export class Worker {
   }
 
   // Runs the attempt as far as it can go. Returns the attempt as left, or null when another
-  // worker holds the lease.
+  // worker holds the lease or the attempt is no longer in progress.
   async run(): Promise<AttemptView | null> {
     const gen = this.at.claim(this.attemptId, this.d.owner, this.t.leaseMs);
     if (gen === null) return null;
     this.gen = gen;
+    // A claim also succeeds on a blocked or uncertain attempt. Picking those up is retry and
+    // reconcile (INB-008, INB-009); this worker only runs an attempt that is in progress.
+    if (this.row.status !== "in_progress") {
+      this.at.release(this.attemptId, gen);
+      return null;
+    }
     this.log(`claimed generation ${gen}`);
     const renew = setInterval(() => this.renew(), Math.max(10, Math.floor(this.t.leaseMs / 3)));
     try {
@@ -375,11 +381,9 @@ export class Worker {
         if (info && ((session && session !== a.session_uuid) || info.pane_id !== a.pane_id)) {
           return this.end("block", "AGENT_UNAVAILABLE", "Herdr no longer reports the attempt's session in its pane.");
         }
-        if (info && !session) {
-          await this.sleep(this.t.pollMs);
-          continue;
-        }
-        if (info && (info.state_change_seq ?? -1) > baseline && (info.agent_status === "idle" || info.agent_status === "done")) return true;
+        // Settled counts only with Herdr reporting the attempt's own session id; a missing one is
+        // looked at again until the deadline below.
+        if (info && session && (info.state_change_seq ?? -1) > baseline && (info.agent_status === "idle" || info.agent_status === "done")) return true;
       }
       if (Date.now() >= until) {
         // Not accepted yet: the prompt may still arrive. A blocked attempt would refuse (erase) it,

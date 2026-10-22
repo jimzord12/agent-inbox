@@ -492,3 +492,35 @@ describe("review round 1: each guard has a test that fails without it", () => {
     expect(label).toBe(`work ${"x".repeat(22)}😀… 123456`);
   });
 });
+
+describe("review round 2", () => {
+  test("a session id Herdr never reports after the receipt ends blocked at the deadline, without focus", async () => {
+    const attempt = openAttempt();
+    const hooks = bridge();
+    const fake = new FakeHerdr({ ...hooks, onPrompt: (a, t) => void (hooks.onPrompt!(a, t), (a.session = null)) });
+    const started = Date.now();
+    expect(await runWorker(fake, attempt.id)).toMatchObject({ status: "blocked", phase: "await_receipt", error: { code: "RECEIPT_INVALID" }, evidence: { delivered: false } });
+    expect(Date.now() - started).toBeLessThan(3000);
+    expect(fake.focused).toHaveLength(0);
+  });
+
+  test("the alias gone before dispatch blocks with AGENT_UNAVAILABLE at once", async () => {
+    const attempt = openAttempt();
+    const hooks = bridge();
+    const fake = new FakeHerdr({ ...hooks, onStart: (a, args) => void (hooks.onStart!(a, args), queueMicrotask(() => fake.agents.delete(a.name))) });
+    expect(await runWorker(fake, attempt.id)).toMatchObject({ status: "blocked", phase: "start_agent", error: { code: "AGENT_UNAVAILABLE" } });
+    expect(fake.verbs()).not.toContain("agent prompt");
+  });
+
+  test("a worker that claims an attempt another worker already blocked leaves it untouched", async () => {
+    const attempt = openAttempt();
+    const gen = at.claim(attempt.id, "first", 60_000)!;
+    at.block(attempt.id, gen, "AGENT_BLOCKED", "dialog");
+    at.release(attempt.id, gen);
+    const fake = new FakeHerdr(bridge());
+    expect(await runWorker(fake, attempt.id)).toBeNull();
+    expect(at.get(attempt.id)).toMatchObject({ status: "blocked", error: { code: "AGENT_BLOCKED" } });
+    expect(at.row(attempt.id).lease_owner).toBeNull();
+    expect(fake.calls).toHaveLength(0);
+  });
+});
