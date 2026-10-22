@@ -4,7 +4,7 @@ title: Add retry and abandon with reconcile-first behaviour
 status: To Do
 assignee: []
 created_date: '2026-10-22 07:06'
-updated_date: '2026-10-22 10:44'
+updated_date: '2026-10-22 10:59'
 labels:
   - 'type:feature'
   - worker
@@ -42,4 +42,6 @@ Retry first observes; it continues only a step proven not to have happened and n
 From INB-002 review N2: while an attempt is blocked for a replaced session, a later valid receipt from the original bound session id is still captured; resume then commit is allowed, because it proves the original conversation holds the handoff.
 
 From INB-006 round 1: N3, a retry worker reads the settle baseline from the dispatch_prompt op detail (baseline_state_seq), not memory. N5, attempt next_actions already offers retry; this task makes it real. Attempts.resume(id, gen, onlyCode) lifts a specific block only.
+
+From INB-006 round 3 N1: when Herdr never reported the session id, the settle-timeout block message should say so (today: 'has not settled after acknowledging').
 <!-- SECTION:NOTES:END -->

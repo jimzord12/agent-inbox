@@ -1,11 +1,11 @@
 ---
 id: INB-006
 title: 'Run the handoff worker and the open, attempt and focus commands'
-status: In Review
+status: Done
 assignee:
   - '@claude'
 created_date: '2026-10-22 07:06'
-updated_date: '2026-10-22 10:55'
+updated_date: '2026-10-22 10:59'
 labels:
   - 'type:feature'
   - worker
@@ -27,19 +27,19 @@ agent-inbox open reserves an attempt and starts a detached worker with stdio ign
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 open returns attempt_id, status and reused within about a second; the worker keeps running after the caller exits
-- [ ] #2 a missing cwd, unknown profile or unavailable Herdr ends the attempt before any context is sent, with the stable error code
-- [ ] #3 the launch sets CLAUDE_CONFIG_DIR explicitly, passes --session-id and --settings, and uses a unique per-attempt agent alias
-- [ ] #4 the item becomes delivered only after receipt candidate, a new settled state and a successful focus
-- [ ] #5 attempt get shows phase, evidence and safe next actions; focus never sends context
-- [ ] #6 open --profile P records an override on the attempt without changing the payload; open --fresh is required to reopen a delivered revision, and the CLI never adds it implicitly
+- [x] #1 open returns attempt_id, status and reused within about a second; the worker keeps running after the caller exits
+- [x] #2 a missing cwd, unknown profile or unavailable Herdr ends the attempt before any context is sent, with the stable error code
+- [x] #3 the launch sets CLAUDE_CONFIG_DIR explicitly, passes --session-id and --settings, and uses a unique per-attempt agent alias
+- [x] #4 the item becomes delivered only after receipt candidate, a new settled state and a successful focus
+- [x] #5 attempt get shows phase, evidence and safe next actions; focus never sends context
+- [x] #6 open --profile P records an override on the attempt without changing the payload; open --fresh is required to reopen a delivered revision, and the CLI never adds it implicitly
 <!-- AC:END -->
 
 ## Definition of Done
 <!-- DOD:BEGIN -->
-- [ ] #1 Review loop PASS (docs/practices/review.md), report stored under docs/reviews/
-- [ ] #2 Evidence named in the final summary, with what remains unverified
-- [ ] #3 Gates green: bun run typecheck and bun run test pass on the committed revision
+- [x] #1 Review loop PASS (docs/practices/review.md), report stored under docs/reviews/
+- [x] #2 Evidence named in the final summary, with what remains unverified
+- [x] #3 Gates green: bun run typecheck and bun run test pass on the committed revision
 <!-- DOD:END -->
 
 ## Implementation Plan
@@ -66,4 +66,6 @@ Built in f548845. Design choices for review: a failed workspace create/ensure fa
 Round 1 (docs/reviews/INB-006-r1.md): FINDINGS. F1 fixed: Attempts.resume(id, gen, onlyCode) lifts only the worker's own AGENT_BLOCKED in the same transaction, so a bridge verdict landing during the dialog wait is kept (test). F2 fixed: two tests, idle without a moved state and a moved state while working. F3 fixed: tests for the pane check before dispatch, session and pane re-checks after the receipt, the alias gone, abandon during the dialog wait, and the pane check in focus. F4 fixed: crashed() keeps an existing block or uncertainty, and fails with INTERNAL when nothing external happened (tests). F5 fixed: a missing session id after the receipt is looked at again (test). F6 fixed: open starts a worker for a reused attempt that no worker owns and that has nothing external recorded (needsWorker; tests); the async spawn-error handler stays empty because the CLI exits first, and this covers it. N1 accepted (two first-ever opens may create two inbox workspaces; the last one is remembered). N2 fixed (a failed state-file write is logged, not reported as Herdr down). N3 to INB-008 (the dispatch baseline is in the dispatch_prompt op detail; a retry worker reads it from there). N4 to INB-007 (check whether state_change_seq or completion_seq marks the opening turn's end on the real Herdr). N5 to INB-008 (retry action). N6 accepted: a reused attempt keeps its profile; to change it, abandon first. N7 fixed (label cuts by character). N8 fixed. N9 accepted (the dialog focus carries no context).
 
 Round 2 (docs/reviews/INB-006-r2.md): FINDINGS. F1 Material fixed: settled now requires Herdr to report the attempt's own session id; a missing one is read again until the deadline, then blocks RECEIPT_INVALID without focus (test). F2 Minor fixed: a worker releases and leaves any attempt that is not in progress right after its claim (test). N2 fixed (test for the alias gone before dispatch). N3-N5 accepted (redundant or low-value guards). N6 accepted: a broken config.json ends the attempt as HERDR_UNAVAILABLE with the real cause in the message. N7 accepted (a worker dead between claim and first op waits out its 60 s lease).
+
+Round 3 (docs/reviews/INB-006-r3.md): PASS, Notes only. N1 carried to INB-008 (the settle-timeout message should say when Herdr never reported the session id). N2 carried to INB-009 (a claim on a blocked row bumps the fencing generation and can fence out a dialog watcher whose lease lapsed during sleep; the attempt stays blocked and recoverable). N3 and N4 carried to INB-007 (its review covers test/e2e/inb007-live.ts; refuse a non-empty run dir). Evidence: worker tests (43, fake Herdr playing the bridge, deletion probes in r2 and r3), CLI open tests (detached worker finishes after the CLI exits). Unverified until INB-007: real Herdr answers, state_change_seq behaviour, the worker surviving its caller's tab.
 <!-- SECTION:NOTES:END -->
