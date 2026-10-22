@@ -151,8 +151,11 @@ const COMMANDS: Record<string, Command> = {
       if (!["in_progress", "blocked", "uncertain"].includes(a.status) || a.revoked_at) {
         throw new InboxError("STATE_CONFLICT", `The attempt is ${a.revoked_at ? "abandoned" : a.status}; nothing to retry.`, { status: a.status });
       }
+      if (a.error_code === "PROFILE_LAUNCH_UNSUPPORTED") {
+        throw new InboxError("PROFILE_LAUNCH_UNSUPPORTED", "The session loaded the wrong Claude profile; abandon this attempt and open the item again.", { attempt_id: a.id });
+      }
       const leaseLive = !!a.lease_owner && !!a.lease_expires_at && a.lease_expires_at > inbox().now();
-      if (!leaseLive) startWorker(inbox(), a.id, ["--retry"]);
+      if (!leaseLive) startWorker(inbox(), a.id, ["--retry"], false);
       return { attempt_id: a.id, status: a.status, started: !leaseLive, attempt: at.get(a.id) };
     },
   },
@@ -210,7 +213,9 @@ const COMMANDS: Record<string, Command> = {
 const WORKER = join(import.meta.dir, "..", "worker", "main.ts");
 
 // Detached with stdio ignored: an inherited pipe would hold the caller (the mod) until timeout.
-function startWorker(inbox: Inbox, attemptId: string, extra: string[] = []) {
+// `failOnError`: a new attempt that no worker could start has done nothing external and fails
+// honestly; a retry may hold a live tab and session, so its spawn failure is only reported.
+function startWorker(inbox: Inbox, attemptId: string, extra: string[] = [], failOnError = true) {
   try {
     const child = spawn(process.execPath, [WORKER, attemptId, ...extra], {
       detached: true,
@@ -221,7 +226,9 @@ function startWorker(inbox: Inbox, attemptId: string, extra: string[] = []) {
     child.on("error", () => {});
     child.unref();
   } catch (err) {
-    failBeforeStart(inbox, attemptId, `cli:${process.pid}`, "INTERNAL", `The worker could not be started: ${(err as Error).message}`);
+    const message = `The worker could not be started: ${(err as Error).message}`;
+    if (!failOnError) throw new InboxError("INTERNAL", message);
+    failBeforeStart(inbox, attemptId, `cli:${process.pid}`, "INTERNAL", message);
   }
 }
 

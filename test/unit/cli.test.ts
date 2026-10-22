@@ -280,6 +280,18 @@ describe("open, attempt get", () => {
     live.close();
   });
 
+  test("retry refuses a wrong-profile block and starts nothing", () => {
+    const item = setup();
+    const at = new Attempts(f.inbox);
+    const { attempt } = at.open(item.id, 1);
+    const g = at.claim(attempt.id, "w", 60_000)!;
+    at.block(attempt.id, g, "PROFILE_LAUNCH_UNSUPPORTED", "wrong profile");
+    at.release(attempt.id, g);
+    const r = cli(["retry", attempt.id]);
+    expect({ code: r.code, err: r.out.error?.code }).toEqual({ code: 1, err: "PROFILE_LAUNCH_UNSUPPORTED" });
+    expect(at.row(attempt.id).lease_owner).toBeNull();
+  });
+
   test("abandon releases the item, keeps the session reference and revokes the capability", async () => {
     const item = setup();
     const at = new Attempts(f.inbox);

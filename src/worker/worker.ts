@@ -132,13 +132,15 @@ export class Worker {
     this.gen = gen;
     // A claim also succeeds on a blocked or uncertain attempt. Only an explicit retry lifts it;
     // otherwise this worker runs an attempt that is in progress and nothing else.
-    const status = this.row.status;
+    const { status, error_code } = this.row;
     if (status !== "in_progress") {
-      if (!this.d.retry) {
+      // A session that loaded the wrong profile cannot be made right by this attempt: abandon and
+      // open again. Any other block is lifted only if it is still the one observed (no verdict
+      // that lands in between is overwritten).
+      if (!this.d.retry || error_code === "PROFILE_LAUNCH_UNSUPPORTED" || !this.at.resume(this.attemptId, gen, error_code ?? undefined)) {
         this.at.release(this.attemptId, gen);
         return null;
       }
-      this.at.resume(this.attemptId, gen);
     }
     this.log(`claimed generation ${gen}${this.d.retry ? ` for a retry (was ${status})` : ""}`);
     const renew = setInterval(() => this.renew(), Math.max(10, Math.floor(this.t.leaseMs / 3)));
@@ -425,12 +427,14 @@ export class Worker {
     const recorded = this.opDetail("dispatch_prompt")?.baseline_state_seq;
     const baseline = typeof recorded === "number" ? recorded : (agent.state_change_seq ?? -1);
     const until = Date.now() + this.t.receiptTimeoutMs;
-    let sawSession = false;
+    let lastMissing = false;
     for (;;) {
       this.check();
       const a = this.row;
       if (a.status !== "in_progress") throw new Stop();
-      if (a.prompt_state === "accepted" && this.opState("dispatch_prompt") === "uncertain") {
+      const dispatch = this.opState("dispatch_prompt");
+      // Acceptance settles a dispatch whose answer was lost, or never recorded after a crash.
+      if (a.prompt_state === "accepted" && (dispatch === "uncertain" || dispatch === "started")) {
         this.at.finishOp(a.id, this.gen, "dispatch_prompt", "confirmed", { by: "bridge acceptance" });
       }
       if (a.prompt_state === "accepted" && a.receipt_candidate_json) {
@@ -438,7 +442,7 @@ export class Worker {
         if (info === null) return this.end("block", "AGENT_UNAVAILABLE", "Claude closed after acknowledging; the receipt is kept.");
         // A missing session id is looked at again, as in verifyTarget; only a different one blocks.
         const session = info?.agent_session?.value;
-        if (session) sawSession = true;
+        lastMissing = !!info && !session;
         if (info && ((session && session !== a.session_uuid) || info.pane_id !== a.pane_id)) {
           return this.end("block", "AGENT_UNAVAILABLE", "Herdr no longer reports the attempt's session in its pane.");
         }
@@ -451,7 +455,7 @@ export class Worker {
         // so the attempt becomes uncertain instead.
         if (a.prompt_state !== "accepted") return this.end("uncertain", "DELIVERY_UNCERTAIN", "The session has not accepted the opening prompt; nothing was resent.");
         if (!a.receipt_candidate_json) return this.end("block", "RECEIPT_INVALID", "No valid acknowledgment yet; open the session to see why.");
-        return this.end("block", "RECEIPT_INVALID", sawSession ? "Claude has not settled after acknowledging." : "Claude acknowledged, but Herdr never reported its session id.");
+        return this.end("block", "RECEIPT_INVALID", lastMissing ? "Claude acknowledged, but Herdr does not report its session id." : "Claude has not settled after acknowledging.");
       }
       await this.sleep(this.t.pollMs);
     }

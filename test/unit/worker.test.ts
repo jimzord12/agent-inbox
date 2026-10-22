@@ -616,12 +616,12 @@ describe("retry (INB-008): observe first, repeat only what provably did not happ
     expect(await runWorker(fake, attempt.id, true)).toMatchObject({ status: "succeeded" });
   });
 
-  test("the settle timeout says when Herdr never reported the session id", async () => {
+  test("the settle timeout says when Herdr does not report the session id", async () => {
     const attempt = openAttempt();
     const hooks = bridge();
     const fake = new FakeHerdr({ ...hooks, onPrompt: (a, t) => void (hooks.onPrompt!(a, t), (a.session = null)) });
     const view = await runWorker(fake, attempt.id);
-    expect(view!.error!.message).toContain("never reported its session id");
+    expect(view!.error!.message).toContain("does not report its session id");
   });
 
   test("without retry, a worker never lifts a block", async () => {
@@ -631,5 +631,93 @@ describe("retry (INB-008): observe first, repeat only what provably did not happ
     fake.hooks.before = undefined;
     expect(await runWorker(fake, attempt.id)).toBeNull();
     expect(at.get(attempt.id).status).toBe("blocked");
+  });
+});
+
+describe("INB-008 review round 1", () => {
+  const count = (fake: FakeHerdr, verb: string) => fake.verbs().filter((v) => v === verb).length;
+
+  test("retry never lifts a wrong-profile refusal, before or after binding; its reason stays", async () => {
+    const a1 = openAttempt({ external_id: "first-start" });
+    const fake = new FakeHerdr(bridge({ bind: "wrong-dir" }));
+    await runWorker(fake, a1.id);
+    expect(await runWorker(fake, a1.id, true)).toBeNull();
+    expect(at.get(a1.id)).toMatchObject({ status: "blocked", error: { code: "PROFILE_LAUNCH_UNSUPPORTED" }, evidence: { last_rejection: { stage: "bind" } } });
+    // Bound correctly first, then a SessionStart reports the wrong profile (e.g. a resumed session).
+    const a2 = openAttempt({ external_id: "after-bind" });
+    const hooks = bridge({ receipt: false });
+    const fake2 = new FakeHerdr({
+      ...hooks,
+      onPrompt: (a, t) => {
+        hooks.onPrompt!(a, t);
+        const row = at.row(a2.id);
+        at.bind(row.id, row.capability, { session_id: a.session!, cwd: row.cwd, claude_config_dir: "C:\other", auth_env: [] });
+        at.captureReceipt(row.id, row.capability, a.session!, marker(row));
+      },
+    });
+    await runWorker(fake2, a2.id);
+    expect(at.get(a2.id)).toMatchObject({ status: "blocked", error: { code: "PROFILE_LAUNCH_UNSUPPORTED" } });
+    expect(await runWorker(fake2, a2.id, true)).toBeNull();
+    expect(at.get(a2.id).evidence.delivered).toBe(false);
+  });
+
+  test("a replaced-session block, then a late valid receipt from the original session: retry delivers with one prompt", async () => {
+    const attempt = openAttempt();
+    const hooks = bridge({ receipt: false });
+    const fake = new FakeHerdr({
+      ...hooks,
+      onPrompt: (a, t) => {
+        hooks.onPrompt!(a, t);
+        // A /clear in that pane reports a new session to the bridge.
+        const row = at.row(attempt.id);
+        at.bind(row.id, row.capability, { session_id: "00000000-0000-4000-8000-000000000000", cwd: row.cwd, claude_config_dir: workDir, auth_env: [] });
+      },
+    });
+    expect(await runWorker(fake, attempt.id)).toMatchObject({ status: "blocked", error: { code: "RECEIPT_INVALID" } });
+    const row = at.row(attempt.id);
+    expect(at.captureReceipt(row.id, row.capability, row.session_uuid, marker(row))).toEqual({ ok: true });
+    expect(await runWorker(fake, attempt.id, true)).toMatchObject({ status: "succeeded" });
+    expect(count(fake, "agent prompt")).toBe(1);
+  });
+
+  test("a focus whose answer was lost is done again by retry", async () => {
+    const attempt = openAttempt();
+    const fake = new FakeHerdr({ ...bridge(), before: (verb) => (verb === "agent focus" ? { timeout: true } : undefined) });
+    expect(await runWorker(fake, attempt.id)).toMatchObject({ status: "blocked", phase: "focus" });
+    expect(at.get(attempt.id).ops.find((o) => o.op === "focus")!.state).toBe("uncertain");
+    fake.hooks.before = undefined;
+    expect(await runWorker(fake, attempt.id, true)).toMatchObject({ status: "succeeded" });
+  });
+
+  test("a lost start answer with another session in the pane stays uncertain and sends nothing", async () => {
+    const attempt = openAttempt();
+    const hooks = bridge();
+    const fake = new FakeHerdr({ ...hooks, onStart: (a, args) => (hooks.onStart!(a, args), (a.session = "00000000-0000-4000-8000-000000000000"), { timeout: true }) });
+    await runWorker(fake, attempt.id);
+    expect(await runWorker(fake, attempt.id, true)).toMatchObject({ status: "uncertain", error: { code: "AGENT_UNAVAILABLE" } });
+    expect(count(fake, "agent prompt")).toBe(0);
+  });
+
+  test("a retry past layout skips preflight: a cwd gone since the launch does not fail a live session", async () => {
+    const proj = join(f.dir, "proj");
+    mkdirSync(proj);
+    const attempt = openAttempt({ launch: { agent: "claude-code", cwd: proj, initial_instruction: "x" } });
+    const fake = new FakeHerdr({ ...bridge(), before: (verb) => (verb === "agent focus" ? { error: "agent_not_found" } : undefined) });
+    await runWorker(fake, attempt.id);
+    rmSync(proj, { recursive: true });
+    fake.hooks.before = undefined;
+    expect(await runWorker(fake, attempt.id, true)).toMatchObject({ status: "succeeded" });
+  });
+
+  test("acceptance confirms a dispatch left started by a crash", async () => {
+    const attempt = openAttempt();
+    const fake = new FakeHerdr({ ...bridge(), before: (verb) => (verb === "agent focus" ? { error: "agent_not_found" } : undefined) });
+    await runWorker(fake, attempt.id);
+    // As if the worker had died after the prompt was sent and before it recorded the answer.
+    f.inbox.db.run("UPDATE attempt_ops SET state = 'started', finished_at = NULL WHERE attempt_id = ? AND op = 'dispatch_prompt'", [attempt.id]);
+    fake.hooks.before = undefined;
+    expect(await runWorker(fake, attempt.id, true)).toMatchObject({ status: "succeeded" });
+    expect(at.get(attempt.id).ops.find((o) => o.op === "dispatch_prompt")!.state).toBe("confirmed");
+    expect(count(fake, "agent prompt")).toBe(1);
   });
 });

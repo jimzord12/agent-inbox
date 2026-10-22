@@ -5,7 +5,7 @@ status: In Review
 assignee:
   - '@claude'
 created_date: '2026-10-22 07:06'
-updated_date: '2026-10-22 11:20'
+updated_date: '2026-10-22 11:31'
 labels:
   - 'type:feature'
   - worker
@@ -53,4 +53,6 @@ From INB-006 round 1: N3, a retry worker reads the settle baseline from the disp
 From INB-006 round 3 N1: when Herdr never reported the session id, the settle-timeout block message should say so (today: 'has not settled after acknowledging').
 
 Built: Worker retry mode (src/worker/worker.ts), worker main --retry, CLI retry ATTEMPT (starts a retry worker unless a live lease holds the attempt) and abandon ATTEMPT. Bug found by the tests and fixed in core: finishOp replaced the detail recorded at beginOp, losing the dispatch's settle baseline; details now merge (test). A failed focus is redone by retry (focus carries no context); a confirmed focus with no commit is committed without focusing again (no test yet: needs a crash between the two writes; carried to INB-010). A blocked attempt the bridge refused (wrong profile or replaced session) can be retried, but nothing is sent: the walk stops at the binding or identity check. INB-006 r3 N1 fixed: the settle timeout says when Herdr never reported the session id.
+
+Round 1 (docs/reviews/INB-008-r1.md): FINDINGS. F1 Material fixed: retry never lifts PROFILE_LAUNCH_UNSUPPORTED (the CLI refuses it with that code; a retry worker releases and leaves it), and resume is passed the observed error code, so a verdict landing between the read and the resume is kept (also F7). Tests for the first-start and after-bind cases, plus the CLI refusal. F2 fixed: a retry whose worker cannot be spawned reports INTERNAL and leaves the attempt as it was. F3 fixed: bridge acceptance confirms a dispatch left started by a crash (test). F4 fixed: tests for the uncertain-focus redo, the own-session check in observeStart, the preflight skip, and the carried N2 case (late valid receipt from the original session after a replaced-session block delivers with one prompt). F5 accepted (stays uncertain until reconcile or abandon, per spec; INB-009 scope). F6 fixed: the message follows the last read, not any earlier one.
 <!-- SECTION:NOTES:END -->
