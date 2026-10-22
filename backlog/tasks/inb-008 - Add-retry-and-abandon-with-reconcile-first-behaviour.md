@@ -4,7 +4,7 @@ title: Add retry and abandon with reconcile-first behaviour
 status: To Do
 assignee: []
 created_date: '2026-10-22 07:06'
-updated_date: '2026-10-22 07:19'
+updated_date: '2026-10-22 08:37'
 labels:
   - 'type:feature'
   - worker
@@ -35,3 +35,9 @@ Retry first observes; it continues only a step proven not to have happened and n
 - [ ] #2 Evidence named in the final summary, with what remains unverified
 - [ ] #3 Gates green: bun run typecheck and bun run test pass on the committed revision
 <!-- DOD:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+From INB-002 review N2: while an attempt is blocked for a replaced session, a later valid receipt from the original bound session id is still captured; resume then commit is allowed, because it proves the original conversation holds the handoff.
+<!-- SECTION:NOTES:END -->

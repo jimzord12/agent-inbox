@@ -304,10 +304,10 @@ describe("review round 1 guards", () => {
   test("a failed dispatch the bridge accepted anyway can never be sent again", () => {
     const { attempt } = openItem();
     const g = at.claim(attempt.id, "w1", 60_000)!;
-    at.setPacketPath(attempt.id, g, "C:\p.md");
+    at.setPacketPath(attempt.id, g, "C:\\p.md");
     const row = at.row(attempt.id);
     at.bind(row.id, row.capability, binding(row));
-    const prompt = buildOpeningPrompt(row.id, "C:\p.md", row.packet_sha256);
+    const prompt = buildOpeningPrompt(row.id, "C:\\p.md", row.packet_sha256);
     at.beginOp(row.id, g, "dispatch_prompt");
     expect(at.acceptPrompt(row.id, row.capability, row.session_uuid, f.dir, prompt).ok).toBe(true);
     at.finishOp(row.id, g, "dispatch_prompt", "failed"); // Herdr answered an error after the prompt landed
@@ -320,7 +320,7 @@ describe("review round 1 guards", () => {
   test("a definitive rejection allows exactly one more dispatch", () => {
     const { attempt } = openItem();
     const g = at.claim(attempt.id, "w1", 60_000)!;
-    at.setPacketPath(attempt.id, g, "C:\p.md");
+    at.setPacketPath(attempt.id, g, "C:\\p.md");
     at.beginOp(attempt.id, g, "dispatch_prompt");
     at.finishOp(attempt.id, g, "dispatch_prompt", "failed");
     expect(at.get(attempt.id).evidence.prompt_state).toBe("rejected");
@@ -361,7 +361,7 @@ describe("review round 1 guards", () => {
     const { row, prompt } = deliverableAttempt();
     expect(at.acceptPrompt(row.id, row.capability, row.session_uuid, f.dir, "fix the login bug")).toMatchObject({ ok: false, protocol: false, code: "NOT_PROTOCOL" });
     expect(at.acceptPrompt(row.id, row.capability, row.session_uuid, f.dir, `${prompt} extra`)).toMatchObject({ ok: false, protocol: true, code: "PROMPT_MISMATCH" });
-    expect(at.acceptPrompt(row.id, row.capability, row.session_uuid, "C:\elsewhere", prompt)).toMatchObject({ ok: false, protocol: true, code: "WRONG_CWD" });
+    expect(at.acceptPrompt(row.id, row.capability, row.session_uuid, "C:\\elsewhere", prompt)).toMatchObject({ ok: false, protocol: true, code: "WRONG_CWD" });
     expect(at.get(row.id).evidence.last_rejection).toMatchObject({ stage: "prompt", reason: "working directory does not match" });
   });
 
@@ -376,11 +376,11 @@ describe("review round 1 guards", () => {
   test("a malformed or mismatched ready marker leaves a diagnostic; an ordinary reply does not", () => {
     const { attempt } = openItem();
     const g = at.claim(attempt.id, "w1", 60_000)!;
-    at.setPacketPath(attempt.id, g, "C:\p.md");
+    at.setPacketPath(attempt.id, g, "C:\\p.md");
     const r = at.row(attempt.id);
     at.bind(r.id, r.capability, binding(r));
     at.beginOp(r.id, g, "dispatch_prompt");
-    at.acceptPrompt(r.id, r.capability, r.session_uuid, f.dir, buildOpeningPrompt(r.id, "C:\p.md", r.packet_sha256));
+    at.acceptPrompt(r.id, r.capability, r.session_uuid, f.dir, buildOpeningPrompt(r.id, "C:\\p.md", r.packet_sha256));
     at.captureReceipt(r.id, r.capability, r.session_uuid, "Still reading.");
     expect(at.get(r.id).evidence.last_rejection).toBeNull();
     at.captureReceipt(r.id, r.capability, r.session_uuid, marker(r, { challenge: "guess" }));
@@ -392,9 +392,60 @@ describe("review round 1 guards", () => {
   test("the packet path is fixed once dispatch began", () => {
     const { attempt } = openItem();
     const g = at.claim(attempt.id, "w1", 60_000)!;
-    at.setPacketPath(attempt.id, g, "C:\p.md");
+    at.setPacketPath(attempt.id, g, "C:\\p.md");
     at.beginOp(attempt.id, g, "dispatch_prompt");
-    at.setPacketPath(attempt.id, g, "C:\p.md"); // same path is a no-op
-    expectCode(() => at.setPacketPath(attempt.id, g, "C:\q.md"), "STATE_CONFLICT");
+    at.setPacketPath(attempt.id, g, "C:\\p.md"); // same path is a no-op
+    expectCode(() => at.setPacketPath(attempt.id, g, "C:\\q.md"), "STATE_CONFLICT");
+  });
+});
+
+describe("review round 2 guards", () => {
+  test("another attempt's opening prompt is a refused protocol prompt, live or closed", () => {
+    const a = deliverableAttempt();
+    const other = f.inbox.submit(f.actionable({ external_id: "run-2:notice-1" })).item;
+    const b = at.open(other.id, 1).attempt;
+    const bRow = at.row(b.id);
+    const bPrompt = buildOpeningPrompt(b.id, "C:\\inbox\\packets\\b.md", bRow.packet_sha256);
+    expect(at.acceptPrompt(a.row.id, a.row.capability, a.row.session_uuid, f.dir, bPrompt)).toMatchObject({ ok: false, protocol: true, code: "WRONG_ATTEMPT" });
+    at.commitDelivery(a.attempt.id, a.gen, {});
+    expect(at.acceptPrompt(a.row.id, a.row.capability, a.row.session_uuid, f.dir, bPrompt)).toMatchObject({ ok: false, protocol: true, code: "ATTEMPT_CLOSED" });
+  });
+
+  test("an op is finished once; an uncertain dispatch is never declared failed", () => {
+    const { attempt } = openItem();
+    const g = at.claim(attempt.id, "w1", 60_000)!;
+    expectCode(() => at.finishOp(attempt.id, g, "create_tab", "confirmed"), "STATE_CONFLICT"); // never started
+    at.beginOp(attempt.id, g, "create_tab");
+    at.finishOp(attempt.id, g, "create_tab", "failed");
+    expectCode(() => at.finishOp(attempt.id, g, "create_tab", "confirmed"), "STATE_CONFLICT");
+    at.setPacketPath(attempt.id, g, "C:\\p.md");
+    at.beginOp(attempt.id, g, "dispatch_prompt");
+    at.finishOp(attempt.id, g, "dispatch_prompt", "uncertain");
+    expectCode(() => at.finishOp(attempt.id, g, "dispatch_prompt", "failed"), "STATE_CONFLICT");
+    expectCode(() => at.clearFailedOp(attempt.id, g, "dispatch_prompt"), "STATE_CONFLICT");
+    expect(at.get(attempt.id).evidence.prompt_state).toBe("uncertain");
+  });
+
+  test("fail is refused while the prompt state is unresolved", () => {
+    const { attempt } = openItem();
+    const g = at.claim(attempt.id, "w1", 60_000)!;
+    at.setPacketPath(attempt.id, g, "C:\\p.md");
+    at.beginOp(attempt.id, g, "dispatch_prompt");
+    at.finishOp(attempt.id, g, "dispatch_prompt", "confirmed"); // Herdr said ok; the bridge has not
+    expectCode(() => at.fail(attempt.id, g, "X", "x"), "STATE_CONFLICT");
+  });
+
+  test("clearFailedOp needs a failed op", () => {
+    const { attempt } = openItem();
+    const g = at.claim(attempt.id, "w1", 60_000)!;
+    expectCode(() => at.clearFailedOp(attempt.id, g, "create_tab"), "STATE_CONFLICT");
+  });
+
+  test("resume and delivery clear the last rejection", () => {
+    const { attempt, gen, row } = deliverableAttempt();
+    at.bind(row.id, row.capability, binding(row, { session_id: "intruder" }));
+    expect(at.get(attempt.id).evidence.last_rejection).not.toBeNull();
+    at.resume(attempt.id, gen);
+    expect(at.get(attempt.id).evidence.last_rejection).toBeNull();
   });
 });

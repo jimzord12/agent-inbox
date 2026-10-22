@@ -5,7 +5,7 @@ status: In Review
 assignee:
   - '@claude'
 created_date: '2026-10-22 07:05'
-updated_date: '2026-10-22 08:26'
+updated_date: '2026-10-22 08:37'
 labels:
   - 'type:feature'
   - core
@@ -49,4 +49,6 @@ The database side of Open session (docs/generic-agent-inbox-spec.md §5.3, §6.2
 
 <!-- SECTION:NOTES:BEGIN -->
 Review round 1 (docs/reviews/INB-002-r1.md, FINDINGS) dispositions: F1 fixed (clearFailedOp refuses unless the prompt was definitively rejected; beginOp dispatch_prompt refuses unless prompt_state is none). F2 fixed (commitDelivery requires in_progress; a failed re-bind drops the receipt candidate so resume cannot deliver the old receipt). F3 fixed (fail refuses while an op is started or uncertain; abandon unrestricted). F4 fixed (acceptPrompt returns protocol and a stable code; closed attempts answer ATTEMPT_CLOSED instead of throwing; bad capability still throws). F5 fixed for live attempts (last_rejection on the attempt view, migration 3, reason and time only); revoked attempts still answer RECEIPT_INVALID and record nothing, since a revoked attempt has no view the owner is waiting on. F6 fixed (acceptPrompt checks cwd). F7 fixed (packet path fixed once dispatch began). F8 carried to INB-006 (the worker checks the Herdr target against agent_session before dispatch). F9 accepted: the ready marker deliberately checks only a non-empty orientation, not a waiting statement. Fixes went to a fresh round 2.
+
+Review round 2 (docs/reviews/INB-002-r2.md, FINDINGS) dispositions: R2-F1 fixed (any [agent-inbox prompt is protocol; another attempt's prompt is refused WRONG_ATTEMPT, closed attempts answer ATTEMPT_CLOSED with protocol true). R2-F2 fixed (finishOp moves an op once from started or once from uncertain; an uncertain dispatch can never become failed; clearFailedOp needs a failed row; fail also refuses while prompt_state is started or uncertain). R2-F3 fixed (path literals doubled). N1 fixed (resume and delivery clear last_rejection). N2 accepted as the reviewer reasoned: a valid receipt from the bound session id with the right challenge proves that conversation holds the handoff; carried to INB-005 and INB-008. N3 handled in INB-005: the hook passes ordinary prompts when the attempt is unknown and blocks only inbox-prefixed ones.
 <!-- SECTION:NOTES:END -->

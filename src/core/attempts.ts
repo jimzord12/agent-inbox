@@ -105,6 +105,7 @@ export type PromptRefusal =
   | "NOT_BOUND"
   | "WRONG_SESSION"
   | "WRONG_CWD"
+  | "WRONG_ATTEMPT"
   | "PROMPT_MISMATCH"
   | "ALREADY_ACCEPTED"
   | "NO_DISPATCH";
@@ -348,6 +349,11 @@ export class Attempts {
 
   finishOp(attemptId: string, gen: number, op: OpName, state: Exclude<OpState, "started">, detail?: Record<string, unknown>) {
     this.fencedWrite(attemptId, gen, (a) => {
+      // An op is finished once from `started`, or resolved once from `uncertain`. An uncertain
+      // dispatch is never declared failed: only bridge evidence or abandon resolves it.
+      const prev = this.db.query("SELECT state FROM attempt_ops WHERE attempt_id = ? AND op = ?").get(a.id, op) as { state: OpState } | null;
+      const allowed = prev?.state === "started" || (prev?.state === "uncertain" && !(op === "dispatch_prompt" && state === "failed"));
+      if (!allowed) throw new InboxError("STATE_CONFLICT", `Op ${op} is ${prev?.state ?? "not started"}; it cannot become ${state}.`);
       this.db
         .query("UPDATE attempt_ops SET state = ?, finished_at = ?, detail_json = COALESCE(?, detail_json) WHERE attempt_id = ? AND op = ?")
         .run(state, this.inbox.now(), detail ? JSON.stringify(detail) : null, a.id, op);
@@ -366,7 +372,8 @@ export class Attempts {
       if (op === "dispatch_prompt" && a.prompt_state !== "rejected") {
         throw new InboxError("STATE_CONFLICT", `The opening prompt is ${a.prompt_state}; it cannot be sent again.`);
       }
-      this.db.query("DELETE FROM attempt_ops WHERE attempt_id = ? AND op = ? AND state = 'failed'").run(a.id, op);
+      const removed = this.db.query("DELETE FROM attempt_ops WHERE attempt_id = ? AND op = ? AND state = 'failed'").run(a.id, op).changes;
+      if (!removed) throw new InboxError("STATE_CONFLICT", `Op ${op} has not failed.`);
       if (op === "dispatch_prompt") this.patch(a.id, { prompt_state: "none" });
     });
   }
@@ -390,7 +397,7 @@ export class Attempts {
   // Back to in_progress for an explicit retry, keeping phase, ops and evidence.
   resume(attemptId: string, gen: number) {
     this.fencedWrite(attemptId, gen, (a) => {
-      if (a.status !== "in_progress") this.patch(a.id, { status: "in_progress", error_code: null, error_message: null });
+      if (a.status !== "in_progress") this.patch(a.id, { status: "in_progress", error_code: null, error_message: null, last_rejection_json: null });
     });
   }
 
@@ -419,6 +426,7 @@ export class Attempts {
         lease_expires_at: null,
         error_code: null,
         error_message: null,
+        last_rejection_json: null,
       });
       this.db
         .query(
@@ -469,21 +477,23 @@ export class Attempts {
 
   // UserPromptSubmit: accept the protocol prompt once, in the bound session, after the worker
   // recorded its dispatch intent. Anything else fails closed.
-  // `protocol` says whether the prompt claims to be this attempt's opening prompt: the hook
-  // blocks a protocol prompt that is not accepted and lets ordinary user prompts through.
+  // `protocol` says whether the prompt claims to be an inbox opening prompt (any attempt's):
+  // the hook blocks a protocol prompt that is not accepted and lets ordinary prompts through.
   // A closed (terminal or revoked) attempt answers instead of throwing, so later prompts in a
   // delivered session keep working.
   acceptPrompt(attemptId: string, capability: string, sessionId: string, cwd: string, prompt: string): PromptResult {
     return this.inbox.write(() => {
       const a = this.row(attemptId);
       if (a.capability !== capability) throw new InboxError("RECEIPT_INVALID", "Bad attempt capability.");
-      const protocol = prompt.trimStart().startsWith(`${OPENING_PREFIX}${a.id}]`);
+      const protocol = prompt.trimStart().startsWith(OPENING_PREFIX);
       const refuse = (code: PromptRefusal, reason: string): PromptResult => {
         if (protocol && !this.closed(a)) this.patch(a.id, { last_rejection_json: this.rejection("prompt", reason) });
         return { ok: false, protocol, code, reason };
       };
       if (this.closed(a)) return refuse("ATTEMPT_CLOSED", `the attempt is ${a.revoked_at ? "revoked" : a.status}`);
       if (!protocol) return { ok: false, protocol, code: "NOT_PROTOCOL", reason: "not an opening prompt" };
+      // Another attempt's opening prompt in this session: its worker targeted the wrong pane.
+      if (!prompt.trimStart().startsWith(`${OPENING_PREFIX}${a.id}]`)) return refuse("WRONG_ATTEMPT", "opening prompt of another attempt");
       const expected = a.packet_path ? buildOpeningPrompt(a.id, a.packet_path, a.packet_sha256) : null;
       if (!a.binding_json) return refuse("NOT_BOUND", "session is not bound");
       if (sessionId !== a.session_uuid) return refuse("WRONG_SESSION", "wrong session");
@@ -580,8 +590,9 @@ export class Attempts {
         const open = this.db
           .query("SELECT op FROM attempt_ops WHERE attempt_id = ? AND state IN ('started', 'uncertain')")
           .all(a.id) as { op: string }[];
-        if (open.length) {
-          throw new InboxError("STATE_CONFLICT", `Unresolved external steps: ${open.map((o) => o.op).join(", ")}. Reconcile or abandon.`);
+        if (open.length || a.prompt_state === "started" || a.prompt_state === "uncertain") {
+          const steps = [...open.map((o) => o.op), ...(open.length ? [] : [`prompt ${a.prompt_state}`])];
+          throw new InboxError("STATE_CONFLICT", `Unresolved external steps: ${steps.join(", ")}. Reconcile or abandon.`);
         }
       }
       this.patch(a.id, {
