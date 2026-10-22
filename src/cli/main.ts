@@ -1,14 +1,20 @@
 #!/usr/bin/env bun
 // agent-inbox JSON CLI (spec §8). stdout carries exactly one JSON envelope; diagnostics go to stderr.
 // Exit 0 = command accepted, 1 = operational/domain error, 2 = invalid usage or input.
-import { parseArgs } from "node:util";
+import { spawn } from "node:child_process";
 import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import { parseArgs } from "node:util";
+import { Attempts } from "../core/attempts";
 import { parseOffsetTime } from "../core/clock";
 import { defaultProfileDirs, writeProfiles } from "../core/config";
 import { InboxError } from "../core/errors";
 import { ensureHome, resolveHome } from "../core/home";
 import { Inbox, type View } from "../core/inbox";
 import { profilesPath } from "../core/profiles";
+import { Herdr } from "../herdr/adapter";
+import { focusItem } from "../worker/focus";
+import { failBeforeStart } from "../worker/worker";
 import { doctor } from "./doctor";
 
 type Flags = Record<string, string | boolean | string[] | undefined>;
@@ -16,7 +22,7 @@ type Flags = Record<string, string | boolean | string[] | undefined>;
 interface Command {
   options: Record<string, { type: "string" | "boolean"; multiple?: boolean }>;
   positionals: number;
-  run(inbox: () => Inbox, args: string[], flags: Flags): unknown;
+  run(inbox: () => Inbox, args: string[], flags: Flags): unknown | Promise<unknown>;
 }
 
 const json = { json: { type: "boolean" as const } };
@@ -113,6 +119,31 @@ const COMMANDS: Record<string, Command> = {
     positionals: 1,
     run: (inbox, [id], f) => ({ item: inbox().restore(id!, int(f, "if-state-version")) }),
   },
+  // User actions: reserve an attempt and start its detached worker; never waits for the handoff.
+  open: {
+    options: { ...json, "if-revision": { type: "string" }, profile: { type: "string" }, fresh: { type: "boolean" } },
+    positionals: 1,
+    run: (inbox, [id], f) => {
+      const { attempt, reused } = new Attempts(inbox()).open(id!, int(f, "if-revision"), { profile: str(f, "profile"), fresh: f.fresh === true });
+      // A reused attempt already has, or had, a worker; picking it up again is retry (INB-008).
+      if (!reused) startWorker(inbox(), attempt.id);
+      const now = new Attempts(inbox()).get(attempt.id);
+      return { attempt_id: now.id, status: now.status, reused, attempt: now };
+    },
+  },
+  attempt: {
+    options: json,
+    positionals: 2,
+    run: (inbox, [sub, id]) => {
+      if (sub !== "get") usage("Usage: agent-inbox attempt get ATTEMPT --json");
+      return { attempt: new Attempts(inbox()).get(id!) };
+    },
+  },
+  focus: {
+    options: json,
+    positionals: 1,
+    run: (inbox, [id]) => focusItem(inbox(), (socketPath) => new Herdr({ socketPath }), id!),
+  },
   status: {
     options: json,
     positionals: 0,
@@ -152,6 +183,24 @@ const COMMANDS: Record<string, Command> = {
     },
   },
 };
+
+const WORKER = join(import.meta.dir, "..", "worker", "main.ts");
+
+// Detached with stdio ignored: an inherited pipe would hold the caller (the mod) until timeout.
+function startWorker(inbox: Inbox, attemptId: string) {
+  try {
+    const child = spawn(process.execPath, [WORKER, attemptId], {
+      detached: true,
+      stdio: "ignore",
+      windowsHide: true,
+      env: { ...process.env, AGENT_INBOX_HOME: inbox.home },
+    });
+    child.on("error", () => {});
+    child.unref();
+  } catch (err) {
+    failBeforeStart(inbox, attemptId, `cli:${process.pid}`, "INTERNAL", `The worker could not be started: ${(err as Error).message}`);
+  }
+}
 
 function usage(message: string, field?: string): never {
   throw new InboxError("INVALID_ARGUMENT", message, field ? { field } : undefined);
@@ -194,7 +243,7 @@ function emit(envelope: unknown, code: number): never {
   process.exit(code);
 }
 
-export function main(argv: string[]) {
+export async function main(argv: string[]) {
   const [name, ...rest] = argv;
   let inbox: Inbox | undefined;
   try {
@@ -210,7 +259,7 @@ export function main(argv: string[]) {
       usage(cmd.positionals ? `\`${name}\` takes ${cmd.positionals} argument(s), e.g. an item id.` : `\`${name}\` takes no arguments.`);
     }
     const lazyInbox = () => (inbox ??= new Inbox({ home: resolveHome() }));
-    const data = cmd.run(lazyInbox, parsed.positionals, parsed.values);
+    const data = await cmd.run(lazyInbox, parsed.positionals, parsed.values);
     inbox?.close();
     emit({ api_version: 1, ok: true, data }, 0);
   } catch (err) {
@@ -221,4 +270,4 @@ export function main(argv: string[]) {
   }
 }
 
-if (import.meta.main) main(process.argv.slice(2));
+if (import.meta.main) await main(process.argv.slice(2));

@@ -380,7 +380,7 @@ export class Attempts {
   }
 
   ops(attemptId: string): OpRow[] {
-    return this.db.query("SELECT * FROM attempt_ops WHERE attempt_id = ? ORDER BY started_at").all(attemptId) as OpRow[];
+    return this.db.query("SELECT * FROM attempt_ops WHERE attempt_id = ? ORDER BY started_at, rowid").all(attemptId) as OpRow[];
   }
 
   block(attemptId: string, gen: number, code: string, message: string) {

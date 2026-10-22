@@ -1,6 +1,9 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { Attempts } from "../../src/core/attempts";
+import { READY_MARKER, buildOpeningPrompt } from "../../src/core/packet";
+import { profilesPath } from "../../src/core/profiles";
 import { type Fixture, fixture } from "../helpers";
 
 const MAIN = join(import.meta.dir, "..", "..", "src", "cli", "main.ts");
@@ -165,5 +168,92 @@ describe("flag wiring", () => {
     expect(rest.events.length).toBe(reporterEvents.length - 1);
     expect(rest.events.every((e: { producer_id: string }) => e.producer_id === "example.reporter")).toBe(true);
     expect(rest.next_cursor).toBe(all.next_cursor);
+  });
+});
+
+describe("open, attempt get", () => {
+  // Every launch here fails in preflight (missing cwd), so no worker ever reaches Herdr; the
+  // config also names a socket nothing listens on.
+  function setup() {
+    const work = join(f.dir, "claude-work");
+    mkdirSync(work);
+    writeFileSync(profilesPath(f.home), JSON.stringify({ profiles: { work: { label: "Work", agent: "claude-code", claude_config_dir: work }, personal: { label: "P", agent: "claude-code", claude_config_dir: work } } }));
+    writeFileSync(join(f.home, "config.json"), JSON.stringify({ herdr: { socket_path: join(f.dir, "no-herdr.sock") } }));
+    const proj = join(f.dir, "proj");
+    mkdirSync(proj);
+    const item = cli(["submit", "--input", inputFile(f.actionable({ launch: { agent: "claude-code", cwd: proj, initial_instruction: "x" } }))]).out.data.item;
+    rmSync(proj, { recursive: true });
+    return item;
+  }
+
+  async function settled(attemptId: string) {
+    const at = new Attempts(f.inbox);
+    for (let i = 0; i < 100; i++) {
+      const a = at.get(attemptId);
+      if (a.status !== "in_progress") return a;
+      await Bun.sleep(100);
+    }
+    throw new Error("the worker never finished");
+  }
+
+  test("open returns attempt_id, status and reused promptly; the detached worker carries on alone", async () => {
+    const item = setup();
+    const started = Date.now();
+    const r = cli(["open", item.id, "--if-revision", "1", "--json"]);
+    expect(Date.now() - started).toBeLessThan(3000);
+    expect(r.code).toBe(0);
+    expect(r.out.data).toMatchObject({ status: "in_progress", reused: false });
+    expect(r.out.data.attempt_id).toMatch(/^att_/);
+    // The CLI has exited; the worker still ends the attempt, before any context is sent.
+    const a = await settled(r.out.data.attempt_id);
+    expect(a).toMatchObject({ status: "failed", phase: "preflight", error: { code: "CWD_UNAVAILABLE" } });
+    const got = cli(["attempt", "get", a.id, "--json"]).out.data.attempt;
+    expect(got).toMatchObject({ id: a.id, phase: "preflight", evidence: { prompt_state: "none", delivered: false } });
+    expect(got.next_actions).toEqual([]);
+    expect(JSON.stringify(got)).not.toMatch(/capability|challenge/);
+  });
+
+  test("a second open while the attempt is unfinished reuses it", () => {
+    const item = setup();
+    const at = new Attempts(f.inbox);
+    const first = at.open(item.id, 1).attempt;
+    const r = cli(["open", item.id, "--if-revision", "1"]);
+    expect(r.out.data).toMatchObject({ attempt_id: first.id, reused: true });
+  });
+
+  test("--profile records an override without changing the payload", async () => {
+    const item = setup();
+    const r = cli(["open", item.id, "--if-revision", "1", "--profile", "personal"]);
+    expect(r.out.data.attempt).toMatchObject({ profile_id: "personal", profile_override: true });
+    expect(f.inbox.get(item.id).revision.payload.profile_id).toBe("work");
+    await settled(r.out.data.attempt_id);
+  });
+
+  test("a delivered revision needs --fresh; the CLI never adds it", async () => {
+    const item = setup();
+    const at = new Attempts(f.inbox);
+    const { attempt } = at.open(item.id, 1);
+    const gen = at.claim(attempt.id, "w", 60_000)!;
+    at.setPacketPath(attempt.id, gen, join(f.dir, "p.md"));
+    const row = at.row(attempt.id);
+    at.bind(row.id, row.capability, { session_id: row.session_uuid, cwd: row.cwd, claude_config_dir: join(f.dir, "claude-work"), auth_env: [] });
+    at.beginOp(row.id, gen, "dispatch_prompt");
+    at.acceptPrompt(row.id, row.capability, row.session_uuid, row.cwd, buildOpeningPrompt(row.id, join(f.dir, "p.md"), row.packet_sha256));
+    const body = { attempt_id: row.id, item_id: row.item_id, content_revision: 1, packet_sha256: row.packet_sha256, challenge: row.challenge };
+    at.captureReceipt(row.id, row.capability, row.session_uuid, `Oriented.\n${READY_MARKER} ${JSON.stringify(body)}`);
+    at.commitDelivery(row.id, gen, {});
+    const state = f.inbox.get(item.id).state_version;
+    cli(["restore", item.id, "--if-state-version", String(state)]);
+    const plain = cli(["open", item.id, "--if-revision", "1"]);
+    expect({ code: plain.code, err: plain.out.error?.code }).toEqual({ code: 1, err: "ALREADY_DELIVERED" });
+    const fresh = cli(["open", item.id, "--if-revision", "1", "--fresh"]);
+    expect({ fresh: fresh.out.data.attempt.fresh, reused: fresh.out.data.reused }).toEqual({ fresh: true, reused: false });
+    expect(fresh.out.data.attempt_id).not.toBe(row.id);
+    await settled(fresh.out.data.attempt_id);
+  });
+
+  test("usage: attempt needs `get`; open needs --if-revision", () => {
+    expect(cli(["attempt", "list", "att_x"]).code).toBe(2);
+    expect(cli(["open", "itm_x"]).code).toBe(2);
   });
 });
