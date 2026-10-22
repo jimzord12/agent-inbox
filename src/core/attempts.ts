@@ -586,6 +586,10 @@ export class Attempts {
     this.fencedWrite(attemptId, gen, (a) => {
       const terminal = status === "failed";
       // `failed` means no side effect is left unresolved (spec §6.2); otherwise the user abandons.
+      // An accepted prompt means the session already holds the handoff: never "not delivered".
+      if (terminal && a.prompt_state === "accepted") {
+        throw new InboxError("STATE_CONFLICT", "The session received the handoff; await the receipt, block, or abandon.");
+      }
       if (terminal) {
         const open = this.db
           .query("SELECT op FROM attempt_ops WHERE attempt_id = ? AND state IN ('started', 'uncertain')")

@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { rmSync, writeFileSync } from "node:fs";
 import { Inbox } from "../../src/core/inbox";
 import { parseOffsetTime } from "../../src/core/clock";
+import { handoffReadError } from "../../src/core/submission";
 import { expectCode, type Fixture, fixture } from "../helpers";
 
 let f: Fixture;
@@ -317,5 +318,17 @@ describe("review round 1 fixes", () => {
   test("C1 control characters are rejected in text fields", () => {
     expectCode(() => f.inbox.submit(f.actionable({ title: "Bad \u009B31m" })), "INVALID_ITEM");
     expectCode(() => f.inbox.submit(f.actionable({ summary: "line\u0085break" })), "INVALID_ITEM");
+  });
+});
+
+describe("M1 milestone fixes", () => {
+  test("a locked handoff file is retryable and not bad input; a missing one is bad input", () => {
+    for (const code of ["EBUSY", "EPERM", "EACCES"]) {
+      const e = handoffReadError(code);
+      expect({ code: e.code, retryable: e.retryable, usage: e.isUsage }).toEqual({ code: "HANDOFF_UNAVAILABLE", retryable: true, usage: false });
+    }
+    const missing = handoffReadError("ENOENT");
+    expect({ code: missing.code, retryable: missing.retryable, usage: missing.isUsage }).toEqual({ code: "INVALID_ITEM", retryable: false, usage: true });
+    expectCode(() => f.inbox.submit(f.actionable({ handoff_path: "C:\\no such dir\\h.md" })), "INVALID_ITEM");
   });
 });

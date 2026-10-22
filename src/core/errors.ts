@@ -21,12 +21,14 @@ export type ErrorCode =
   | "STORE_BUSY"
   | "STORE_INCOMPATIBLE"
   | "STORE_ERROR"
+  // Added to the spec's list (docs/decisions.md): the handoff file exists but is locked for now.
+  | "HANDOFF_UNAVAILABLE"
   | "NOT_IMPLEMENTED"
   | "INTERNAL";
 
 // Codes caused by bad caller input; the CLI exits 2 for these, 1 for everything else.
 const USAGE_CODES = new Set<ErrorCode>(["INVALID_ITEM", "INVALID_ARGUMENT", "UNSUPPORTED_API_VERSION"]);
-const RETRYABLE_CODES = new Set<ErrorCode>(["STORE_BUSY", "HERDR_UNAVAILABLE"]);
+const RETRYABLE_CODES = new Set<ErrorCode>(["STORE_BUSY", "HERDR_UNAVAILABLE", "HANDOFF_UNAVAILABLE"]);
 
 export class InboxError extends Error {
   readonly code: ErrorCode;

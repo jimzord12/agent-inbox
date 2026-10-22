@@ -203,6 +203,16 @@ export function parseSubmission(raw: unknown, limits: Limits = DEFAULT_LIMITS): 
   return sub;
 }
 
+// On Windows a file still held by its writer or a scanner is briefly locked (EBUSY, or EPERM /
+// EACCES for a sharing violation): HANDOFF_UNAVAILABLE, retryable, exit 1. Anything else, such
+// as a missing file, is bad input.
+export function handoffReadError(code: string): InboxError {
+  if (["EBUSY", "EPERM", "EACCES", "EAGAIN"].includes(code)) {
+    return new InboxError("HANDOFF_UNAVAILABLE", `The handoff file is locked or unreadable right now (${code}); try again.`, { field: "handoff_path", reason: code });
+  }
+  return new InboxError("INVALID_ITEM", `Cannot read \`handoff_path\`: ${code}.`, { field: "handoff_path", reason: code });
+}
+
 // Reads the handoff once and keeps its exact bytes. Must be valid UTF-8 without NULs.
 export function captureHandoff(path: string, limits: Limits = DEFAULT_LIMITS): CapturedHandoff {
   let bytes: Uint8Array;
@@ -213,10 +223,7 @@ export function captureHandoff(path: string, limits: Limits = DEFAULT_LIMITS): C
     bytes = new Uint8Array(readFileSync(path));
   } catch (err) {
     if (err instanceof InboxError) throw err;
-    const code = (err as NodeJS.ErrnoException).code ?? "error";
-    // On Windows a file still held by its writer or a scanner is briefly locked: worth a retry.
-    const transient = ["EBUSY", "EPERM", "EACCES", "EAGAIN"].includes(code);
-    throw new InboxError("INVALID_ITEM", `Cannot read \`handoff_path\`: ${code}.`, { field: "handoff_path", reason: code }, transient);
+    throw handoffReadError((err as NodeJS.ErrnoException).code ?? "error");
   }
   if (bytes.length > limits.handoffBytes) invalid(`The handoff is larger than ${limits.handoffBytes} bytes.`, "handoff_path");
   if (bytes.length === 0) invalid("The handoff is empty.", "handoff_path");

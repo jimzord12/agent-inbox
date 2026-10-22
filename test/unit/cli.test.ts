@@ -144,15 +144,26 @@ describe("flag wiring", () => {
 
   test("list --cursor and filters, events --after round trip", () => {
     for (let i = 0; i < 3; i++) cli(["submit", "--input", inputFile(f.informational({ external_id: `n-${i}` }), `n${i}.json`)]);
+    // A different producer and kind, so each filter is shown to exclude something.
+    const other = cli(["submit", "--input", inputFile(f.actionable(), "a.json")]).out.data.item;
+    const ids = (args: string[]) => cli(["list", ...args]).out.data.items.map((i: { id: string }) => i.id);
+    expect(ids(["--kind", "informational"])).not.toContain(other.id);
+    expect(ids(["--kind", "actionable"])).toEqual([other.id]);
+    expect(ids(["--producer", "example.script"])).toEqual([other.id]);
+    cli(["mark-read", other.id, "--revision", "1"]);
+    expect(ids(["--unread"])).not.toContain(other.id);
+    expect(ids([])).toContain(other.id);
     const p1 = cli(["list", "--limit", "2", "--kind", "informational", "--unread"]).out.data;
     expect(p1.items).toHaveLength(2);
-    const p2 = cli(["list", "--limit", "2", "--cursor", p1.next_cursor]).out.data;
+    const p2 = cli(["list", "--limit", "2", "--kind", "informational", "--cursor", p1.next_cursor]).out.data;
     expect(p2.items).toHaveLength(1);
     expect(cli(["list", "--profile", "nobody"]).out.data.items).toHaveLength(0);
     const all = cli(["events"]).out.data;
     const first = all.events[0].cursor;
     const rest = cli(["events", "--after", first, "--producer", "example.reporter"]).out.data;
-    expect(rest.events.length).toBe(all.events.length - 1);
+    const reporterEvents = all.events.filter((e: { producer_id: string }) => e.producer_id === "example.reporter");
+    expect(rest.events.length).toBe(reporterEvents.length - 1);
+    expect(rest.events.every((e: { producer_id: string }) => e.producer_id === "example.reporter")).toBe(true);
     expect(rest.next_cursor).toBe(all.next_cursor);
   });
 });

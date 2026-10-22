@@ -1,10 +1,11 @@
 ---
 id: INB-021
 title: Run the M1 milestone review loop
-status: To Do
-assignee: []
+status: In Progress
+assignee:
+  - '@claude'
 created_date: '2026-10-22 07:14'
-updated_date: '2026-10-22 08:42'
+updated_date: '2026-10-22 08:44'
 labels:
   - 'type:review'
 milestone: m-0
@@ -33,6 +34,12 @@ Closed review loop on the combined result of milestone M1 against its goal and e
 - [ ] #2 Evidence named in the final summary, with what remains unverified
 - [ ] #3 Gates green: bun run typecheck and bun run test pass on the committed revision
 <!-- DOD:END -->
+
+## Implementation Plan
+
+<!-- SECTION:PLAN:BEGIN -->
+1. Fix the carried minors: CLI filter test discriminates kind, producer and unread; HANDOFF_UNAVAILABLE for a locked handoff file; fail refused after an accepted prompt; delivery clears a rejection (test). 2. Record build decisions in docs/decisions.md. 3. Gate. 4. Fresh milestone reviewer on M1 (goal and exit condition), store m-0-rN.md, loop to PASS.
+<!-- SECTION:PLAN:END -->
 
 ## Implementation Notes
 

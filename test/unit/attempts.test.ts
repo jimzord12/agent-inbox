@@ -441,11 +441,35 @@ describe("review round 2 guards", () => {
     expectCode(() => at.clearFailedOp(attempt.id, g, "create_tab"), "STATE_CONFLICT");
   });
 
-  test("resume and delivery clear the last rejection", () => {
+  test("resume clears the last rejection", () => {
     const { attempt, gen, row } = deliverableAttempt();
     at.bind(row.id, row.capability, binding(row, { session_id: "intruder" }));
     expect(at.get(attempt.id).evidence.last_rejection).not.toBeNull();
     at.resume(attempt.id, gen);
     expect(at.get(attempt.id).evidence.last_rejection).toBeNull();
+  });
+});
+
+describe("M1 milestone fixes", () => {
+  test("fail is refused once the bridge accepted the opening prompt", () => {
+    const { attempt, gen, row } = deliverableAttempt();
+    expect(at.get(row.id).evidence.prompt_state).toBe("accepted");
+    expectCode(() => at.fail(attempt.id, gen, "HERDR_SEND_FAILED", "x"), "STATE_CONFLICT");
+    expect(at.abandon(attempt.id).status).toBe("failed");
+  });
+
+  test("delivery clears a rejection recorded while the attempt stayed in progress", () => {
+    const { item } = f.inbox.submit(f.actionable());
+    const { attempt } = at.open(item.id, 1);
+    const g = at.claim(attempt.id, "w1", 60_000)!;
+    at.setPacketPath(attempt.id, g, "C:\\p.md");
+    const r = at.row(attempt.id);
+    at.bind(r.id, r.capability, binding(r));
+    at.beginOp(r.id, g, "dispatch_prompt");
+    at.acceptPrompt(r.id, r.capability, r.session_uuid, f.dir, buildOpeningPrompt(r.id, "C:\\p.md", r.packet_sha256));
+    at.captureReceipt(r.id, r.capability, r.session_uuid, marker(r, { challenge: "guess" }));
+    expect(at.get(r.id)).toMatchObject({ status: "in_progress", evidence: { last_rejection: { stage: "receipt" } } });
+    at.captureReceipt(r.id, r.capability, r.session_uuid, marker(r));
+    expect(at.commitDelivery(r.id, g, {}).evidence.last_rejection).toBeNull();
   });
 });

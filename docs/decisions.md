@@ -156,3 +156,20 @@ Shell quirks on this machine:
 
 - Commit subjects: `<Scope>: <Description> (INB-<nnn>)`, the task id zero-padded as on the board.
 - All repo content in English. Talk to the user in Greek.
+
+## Build decisions (agent, 2026-10-22, from review loops)
+
+- **Extra error code `HANDOFF_UNAVAILABLE`** (retryable, exit 1): the handoff file exists but is
+  locked right now (EBUSY, or EPERM/EACCES from a sharing violation). Spec section 8 has no code for a
+  transient input problem; `INVALID_ITEM` would tell producers not to retry.
+- **Events cursor ahead of the store is refused** (`INVALID_ARGUMENT`, `details.latest_cursor`), so a
+  consumer after a backup restore resets on purpose instead of silently skipping events.
+- **Herdr outcomes**: reads report errors as `rejected`; mutating calls report every error as `unknown`
+  unless Herdr raises it before acting (a fixed list checked against the 0.9.5 binary). Only a
+  `rejected` may lead to a retry of the same step.
+- **Receipt bridge**: Claude's SessionStart cannot block, so a failed startup check blocks the attempt
+  and leaves it unbound; the prompt guard then refuses the packet. Any prompt starting with
+  `[agent-inbox ` is a protocol prompt; one the guard cannot validate (including when the store or its
+  own input is unavailable) is blocked, and ordinary prompts always pass.
+- **Minors found in a task's last review round** are carried to its milestone loop instead of reopening
+  the task loop; the milestone review re-reviews that code anyway.
