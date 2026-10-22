@@ -100,6 +100,8 @@ const PRE_EFFECT_CODES = new Set([
   "agent_target_ambiguous",
 ]);
 
+const START_AFTER_EFFECT = new Set(["agent_not_found", "workspace_not_found", "tab_not_found", "pane_not_found", "agent_pane_not_found", "target_pane_not_found"]);
+
 function preEffect(code: string): boolean {
   return PRE_EFFECT_CODES.has(code) || code.startsWith("invalid_");
 }
@@ -214,12 +216,21 @@ export class Herdr {
     }
   }
 
+  // On `agent start`, a pane, tab, workspace or agent that is "not found" may have gone away
+  // after Claude was launched in it, so those answers are unknown, not refusals.
   async startAgent(o: { name: string; paneId: string; args: string[]; timeoutMs: number }): Promise<{ agent: AgentInfo; argv: string[] }> {
-    return this.call(
-      ["agent", "start", o.name, "--kind", "claude", "--pane", o.paneId, "--timeout", String(o.timeoutMs), "--", ...o.args],
-      o.timeoutMs + 10_000,
-      true,
-    );
+    try {
+      return await this.call(
+        ["agent", "start", o.name, "--kind", "claude", "--pane", o.paneId, "--timeout", String(o.timeoutMs), "--", ...o.args],
+        o.timeoutMs + 10_000,
+        true,
+      );
+    } catch (err) {
+      if (err instanceof HerdrError && err.outcome === "rejected" && START_AFTER_EFFECT.has(err.code)) {
+        throw new HerdrError(err.code, err.message, "unknown");
+      }
+      throw err;
+    }
   }
 
   // Null only when no agent has the name. `agent_name_not_found` (the name no longer owns its

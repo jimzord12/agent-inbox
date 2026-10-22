@@ -40,7 +40,8 @@ agent-inbox setup-profiles                      # work = %USERPROFILE%\.claude-w
 agent-inbox setup-profiles --profile work=D:\claude\work --label work=Work --force
 ```
 
-Folders must be absolute and exist; an existing file is replaced only with `--force`.
+Folders must be absolute, with a drive letter (`C:\...`) or a UNC share (`\\server\share\...`), and exist;
+`\Users\me` and `C:Users\me` are refused. An existing file is replaced only with `--force`.
 
 `config.json` is optional; every key has a default:
 
@@ -50,7 +51,8 @@ Folders must be absolute and exist; an existing file is replaced only with `--fo
 
 `socket_path` is the Herdr server every call names (default: Herdr's own socket under `%APPDATA%`); there is no
 fallback to another server. `workspace_label` names the workspace the inbox creates for its launch
-tabs. `agent-inbox doctor` shows the resolved profiles and Herdr settings.
+tabs. Unknown keys are refused, so a misspelt key never silently falls back to a default.
+`agent-inbox doctor` shows the resolved profiles and Herdr settings.
 
 ## Development
 

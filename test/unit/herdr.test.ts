@@ -178,6 +178,19 @@ describe("calls and recorded answers", () => {
     expect(r.agent_session?.value).toMatch(/^[0-9a-f-]{36}$/);
   });
 
+  test("a not-found answer to agent start is unknown, since it can follow the launch; elsewhere it is a refusal", async () => {
+    for (const code of ["agent_not_found", "tab_not_found", "workspace_not_found", "pane_not_found"]) {
+      const reply = JSON.stringify({ error: { code, message: "gone" }, id: "cli:agent:start" });
+      const e = await failure(fake(reply).herdr.startAgent({ name: "inbox-a1b2c3", paneId: "w7:p2", args: [], timeoutMs: 1000 }));
+      expect({ code: e.code, outcome: e.outcome }).toEqual({ code, outcome: "unknown" });
+    }
+    const focus = await failure(fake(rec.agentNotFound).herdr.focus("inbox-a1b2c3"));
+    expect(focus.outcome).toBe("rejected");
+    // A refusal that comes before any launch stays a refusal on start too.
+    const taken = await failure(fake(JSON.stringify({ error: { code: "agent_name_taken", message: "x" }, id: "cli:agent:start" })).herdr.startAgent({ name: "n", paneId: "p", args: [], timeoutMs: 1000 }));
+    expect(taken.outcome).toBe("rejected");
+  });
+
   test("a start held by a dialog is agent_not_ready, an unknown outcome", async () => {
     const { herdr } = fake(rec.agentStartNotReady);
     const e = await failure(herdr.startAgent({ name: "inbox-a1b2c3", paneId: "w7:p2", args: [], timeoutMs: 25_000 }));

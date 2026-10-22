@@ -1,10 +1,11 @@
 ---
 id: INB-022
 title: Run the M2 milestone review loop
-status: To Do
-assignee: []
+status: In Progress
+assignee:
+  - '@claude'
 created_date: '2026-10-22 07:14'
-updated_date: '2026-10-22 08:42'
+updated_date: '2026-10-22 12:53'
 labels:
   - 'type:review'
 milestone: m-1
@@ -38,10 +39,18 @@ Closed review loop on the combined result of milestone M2 against its goal and e
 - [ ] #3 Gates green: bun run typecheck and bun run test pass on the committed revision
 <!-- DOD:END -->
 
+## Implementation Plan
+
+<!-- SECTION:PLAN:BEGIN -->
+1. Fix the carried items (INB-004 R2-F1, N1; INB-003 R3-F1). 2. Gate. 3. Fresh milestone reviewer on M2 against its goal and exit condition; store m-1-rN.md; loop to PASS.
+<!-- SECTION:PLAN:END -->
+
 ## Implementation Notes
 
 <!-- SECTION:NOTES:BEGIN -->
 Carried from INB-004 round 2: R2-F1 (unit test that loadProfiles refuses a root-relative claude_config_dir), N1 (README: drive or UNC paths only; unknown config.json keys are refused), N3 (optionally canonicalise hand-written profile folders on load). Fix in the M2 milestone round.
 
 Carried from INB-003 round 3: R3-F1 (on agent start, treat agent_not_found, workspace_not_found and tab_not_found as unknown, or make the pre-effect set per verb; add a test).
+
+Carried items done before round 1: INB-004 R2-F1 (test: loadProfiles refuses root-relative, drive-relative and relative folders in a hand-written profiles.json); N1 (README: drive or UNC paths only, unknown config keys refused); N3 not done (optional canonicalisation on load; folders are compared through normalizeDir already); INB-003 R3-F1 (agent start turns not-found answers into unknown outcomes, since they can follow the launch; test). M1 N2 (get attempt summary) was answered by INB-011.
 <!-- SECTION:NOTES:END -->

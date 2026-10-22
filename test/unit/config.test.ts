@@ -149,6 +149,13 @@ describe("review round 1 fixes", () => {
     expect(loadConfig(f.home, {}).herdr.socket_path).toBe("\\\\server\\pipe\\herdr.sock");
   });
 
+  test("a hand-written profiles.json with a root- or drive-relative folder is refused on load", () => {
+    for (const dir of ["\\Users\\me\\.claude-work", "C:Users\\me\\.claude-work", "relative\\dir"]) {
+      writeFileSync(profilesPath(f.home), JSON.stringify({ profiles: { work: { label: "W", agent: "claude-code", claude_config_dir: dir } } }));
+      expectCode(() => loadProfiles(f.home), "PROFILE_NOT_CONFIGURED");
+    }
+  });
+
   test("a trailing separator is not stored", () => {
     const p = writeProfiles(f.home, { work: `${work}\\` });
     expect(p.work?.claude_config_dir).toBe(work);

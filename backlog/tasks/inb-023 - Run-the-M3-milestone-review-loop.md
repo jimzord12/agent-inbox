@@ -1,10 +1,11 @@
 ---
 id: INB-023
 title: Run the M3 milestone review loop
-status: To Do
-assignee: []
+status: In Progress
+assignee:
+  - '@claude'
 created_date: '2026-10-22 07:14'
-updated_date: '2026-10-22 07:20'
+updated_date: '2026-10-22 12:53'
 labels:
   - 'type:review'
 milestone: m-2
