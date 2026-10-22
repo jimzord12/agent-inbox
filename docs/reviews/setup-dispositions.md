@@ -28,11 +28,20 @@ The setup is not a board task, so its dispositions live here (reports stay verba
 
 | id | disposition |
 |---|---|
-| S2-01 | Fixed in the working tree: the search-term list is redacted from `setup-r1.md` line 28 (marked in place), and `review.md` now forbids listing searched private terms. The terms remain in public history (commit 08aa4b7); rewriting it needs a force push, which is outside the standing permission, so the owner is asked. |
+| S2-01 | Fixed and pushed in dc41e42: the search-term list is redacted from `setup-r1.md` line 28 (marked in place), and `review.md` now forbids listing searched private terms. The terms remain in public history (every commit from 08aa4b7 up to 81386ff carries the unredacted file); rewriting it needs a force push, which is outside the standing permission, so the owner is asked. |
 | S2-02 | Fixed: the m-5 exit condition no longer requires the final loop; INB-027 owns it. |
-| S2-03 | Fixed: DoD #1 of all 27 tasks reads `bun run test`; README and preflight use `bun run test`. |
+| S2-03 | Fixed: the gate item (now DoD #3 after the edit reordered it) of all 27 tasks reads `bun run test`; README and preflight use `bun run test`. |
 | S2-04 | Fixed: AGENTS.md uses zero-padded `INB-<nnn>` and names the INB-020 install exception; preflight §7.4 matches AGENTS.md on the trust dialog; preflight §9.3 matches INB-018. |
 | S2-05 | Fixed: m-1 exit, preflight §7.3/§7.5, INB-007 gains the caller-closing AC, INB-018 gains the personal pane-env AC. |
 | S2-06 | Fixed: `live` label on INB-014 and INB-020; INB-014 notes say how the agent drives the pane or goes Blocked with a checklist. |
 | S2-07 | Fixed: INB-019 depends on INB-011. |
 | S2-08 | Fixed: two ACs added to INB-001. |
+
+## Round 3 (`setup-r3.md`, snapshot dc41e42) — PASS; minors applied afterwards
+
+| id | disposition |
+|---|---|
+| S3-01 | Fixed: INB-007 gains the live UserPromptSubmit-block AC; its description now says the open points are closed for the work profile. |
+| S3-02 | Fixed: INB-027 gains an AC to re-sync the installed mod if mod/ or the CLI changed after INB-020. |
+| S3-03 | Fixed: S2-01 and S2-03 rows corrected; the history-rewrite question is in decisions.md "Open questions". |
+| S3-04 | Fixed: INB-020 notes say the ccp check is covered by the install approval and how to check an empty real inbox without leaving test items active. |

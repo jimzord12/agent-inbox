@@ -4,7 +4,7 @@ title: Set up the inbox for real use in both profiles
 status: To Do
 assignee: []
 created_date: '2026-10-22 07:10'
-updated_date: '2026-10-22 07:20'
+updated_date: '2026-10-22 07:26'
 labels:
   - 'type:chore'
   - mod
@@ -38,3 +38,9 @@ Owner approved 2026-10-22 (docs/decisions.md): at the end of the build, write pr
 - [ ] #2 Evidence named in the final summary, with what remains unverified
 - [ ] #3 Gates green: bun run typecheck and bun run test pass on the committed revision
 <!-- DOD:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+The fresh ccp session check of AC #2 is covered by the owner's install approval (decisions.md), not by the routing-only rule. If the real inbox is empty, submit one informational item from producer agent-inbox-setup, check it in both profiles, then acknowledge it so it moves to History.
+<!-- SECTION:NOTES:END -->

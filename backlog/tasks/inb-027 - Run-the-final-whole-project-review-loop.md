@@ -4,7 +4,7 @@ title: Run the final whole-project review loop
 status: To Do
 assignee: []
 created_date: '2026-10-22 07:14'
-updated_date: '2026-10-22 07:20'
+updated_date: '2026-10-22 07:26'
 labels:
   - 'type:review'
 milestone: m-5
@@ -29,6 +29,7 @@ The closing closed review loop on the whole project at its final snapshot: level
 <!-- AC:BEGIN -->
 - [ ] #1 a fresh reviewer returns PASS on the final snapshot; reports stored as docs/reviews/final-rN.md
 - [ ] #2 every applicable spec section 15 line is shown met by named evidence or recorded as out of scope in decisions.md
+- [ ] #3 if mod/ or the CLI changed after INB-020 installed the mod, the installed mod is updated in both profiles and the command is recorded
 <!-- AC:END -->
 
 ## Definition of Done
