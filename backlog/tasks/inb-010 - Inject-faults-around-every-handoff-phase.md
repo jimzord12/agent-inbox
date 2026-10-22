@@ -4,7 +4,7 @@ title: Inject faults around every handoff phase
 status: To Do
 assignee: []
 created_date: '2026-10-22 07:06'
-updated_date: '2026-10-22 07:19'
+updated_date: '2026-10-22 10:33'
 labels:
   - 'type:test'
   - worker
@@ -35,3 +35,9 @@ Acceptance list 'Crash and storage recovery' in docs/generic-agent-inbox-spec.md
 - [ ] #2 Evidence named in the final summary, with what remains unverified
 - [ ] #3 Gates green: bun run typecheck and bun run test pass on the committed revision
 <!-- DOD:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+From INB-005 round 3 N2: test that a busy Stop whose reply is not a valid receipt writes no receipt-pending.json.
+<!-- SECTION:NOTES:END -->

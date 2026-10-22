@@ -1,11 +1,11 @@
 ---
 id: INB-005
 title: Build the per-session receipt bridge hooks
-status: In Review
+status: Done
 assignee:
   - '@claude'
 created_date: '2026-10-22 07:06'
-updated_date: '2026-10-22 10:30'
+updated_date: '2026-10-22 10:33'
 labels:
   - 'type:feature'
   - bridge
@@ -24,18 +24,18 @@ The bridge proves the right session got the right packet (docs/generic-agent-inb
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 the worker writes a per-attempt settings file holding SessionStart, UserPromptSubmit and Stop hooks in exec form, scoped by attempt id and capability
-- [ ] #2 SessionStart binds session id, cwd, Claude config dir and auth-env names; a mismatch stops the session from receiving the packet
-- [ ] #3 UserPromptSubmit blocks a protocol prompt that fails validation and lets ordinary prompts through untouched
-- [ ] #4 Stop records a receipt candidate only from a valid INBOX_READY_V1 marker in the main session's last message
-- [ ] #5 each hook finishes within a bounded time and never prints secrets
+- [x] #1 the worker writes a per-attempt settings file holding SessionStart, UserPromptSubmit and Stop hooks in exec form, scoped by attempt id and capability
+- [x] #2 SessionStart binds session id, cwd, Claude config dir and auth-env names; a mismatch stops the session from receiving the packet
+- [x] #3 UserPromptSubmit blocks a protocol prompt that fails validation and lets ordinary prompts through untouched
+- [x] #4 Stop records a receipt candidate only from a valid INBOX_READY_V1 marker in the main session's last message
+- [x] #5 each hook finishes within a bounded time and never prints secrets
 <!-- AC:END -->
 
 ## Definition of Done
 <!-- DOD:BEGIN -->
-- [ ] #1 Review loop PASS (docs/practices/review.md), report stored under docs/reviews/
-- [ ] #2 Evidence named in the final summary, with what remains unverified
-- [ ] #3 Gates green: bun run typecheck and bun run test pass on the committed revision
+- [x] #1 Review loop PASS (docs/practices/review.md), report stored under docs/reviews/
+- [x] #2 Evidence named in the final summary, with what remains unverified
+- [x] #3 Gates green: bun run typecheck and bun run test pass on the committed revision
 <!-- DOD:END -->
 
 ## Implementation Plan
@@ -52,4 +52,6 @@ Facts used (Claude Code hooks docs, via a guide agent; to confirm live in INB-00
 Round 1 (docs/reviews/INB-005-r1.md): PASS. Dispositions: F1 fixed (hooks open the store with a 2 s busy timeout, HOOK_BUSY_TIMEOUT_MS; worst case about 6 s plus start-up inside the 15 s settings timeout; main.ts comment names the real bounds, including the unbounded bridge-file read on a hung disk). F2 fixed (Stop retries once on STORE_BUSY, then writes the marker lines to receipt-pending.json beside bridge.json for INB-009 to reconcile; test holds the write lock). F3 fixed (bridge opens an existing store only: Inbox store.existingOnly, a missing store is STORE_ERROR, no home or db created; test). N1 routed to INB-006/INB-020 (pin a stable hook script path). N2 fixed, narrowed: a blocked attempt refuses its opening prompt (ATTEMPT_BLOCKED); an uncertain one still accepts, because a late dispatch landing is the evidence that settles it. N3 fixed (ANTHROPIC_CUSTOM_HEADERS added); widening to all ANTHROPIC_*/CLAUDE_CODE_* names stays with the INB-007 environment check. N4 accepted as designed. N5: SessionEnd/StopFailure left to INB-011 and INB-007. Round 2 next.
 
 Round 2 (docs/reviews/INB-005-r2.md): FINDINGS. F1 Material fixed: receipt-pending.json keeps the whole last_assistant_message (only when it parses as a receipt), and the test replays it through captureReceipt into a valid candidate. F2 fixed (comment says about 8 s: the busy retry reopens the store). N1 noted (rollback-journal stores only, not this machine). N2 routed to INB-009 (validate whatever pending file it finds; last write wins). N3 resolved by F1. Round 3 next.
+
+Round 3 (docs/reviews/INB-005-r3.md): PASS, Notes only. N1 fixed (INB-009 note now says the pending file holds the whole reply). N2 carried to INB-010 (fault injection): a busy Stop whose reply is not a receipt writes no pending file; not added here so the passed snapshot stays the reviewed one. Evidence: bridge tests (19, real hook processes), r1 probes (busy store, missing home), r2/r3 replay check. Unverified until INB-007: --settings hooks additive, live hook input fields, real session cwd form.
 <!-- SECTION:NOTES:END -->
