@@ -4,7 +4,7 @@ title: Show item details with paged handoff and attempt progress
 status: To Do
 assignee: []
 created_date: '2026-10-22 07:06'
-updated_date: '2026-10-22 12:03'
+updated_date: '2026-10-22 12:51'
 labels:
   - 'type:feature'
   - mod
@@ -40,4 +40,6 @@ Details show summary, profile, cwd, instruction, retained handoff, references, s
 From INB-002 round 3 N2: show prompt_state as the dispatch evidence; a reconciled dispatch op can stay uncertain on a delivered attempt.
 
 From INB-009 round 1 N4: after a machine sleep, reconcile on the mod's list can find a live worker's lease lapsed and mark the attempt uncertain; show it as retryable, not as a failure.
+
+From INB-011 round 2 F1: show the attempt's stored availability, not the focus error's details; focus on a blocking attempt whose agent is not registered yet reports 'no longer running' though the session may still be starting.
 <!-- SECTION:NOTES:END -->
