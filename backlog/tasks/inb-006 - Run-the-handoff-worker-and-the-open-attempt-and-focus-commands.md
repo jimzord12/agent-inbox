@@ -1,10 +1,11 @@
 ---
 id: INB-006
 title: 'Run the handoff worker and the open, attempt and focus commands'
-status: To Do
-assignee: []
+status: In Review
+assignee:
+  - '@claude'
 created_date: '2026-10-22 07:06'
-updated_date: '2026-10-22 10:30'
+updated_date: '2026-10-22 10:36'
 labels:
   - 'type:feature'
   - worker
@@ -41,6 +42,12 @@ agent-inbox open reserves an attempt and starts a detached worker with stdio ign
 - [ ] #3 Gates green: bun run typecheck and bun run test pass on the committed revision
 <!-- DOD:END -->
 
+## Implementation Plan
+
+<!-- SECTION:PLAN:BEGIN -->
+1. Worker (src/worker/worker.ts) with lease, phases and the op log. 2. Detached entry (src/worker/main.ts). 3. CLI open / attempt get / focus. 4. Fake Herdr server plus simulated bridge for unit tests. 5. Review loop.
+<!-- SECTION:PLAN:END -->
+
 ## Implementation Notes
 
 <!-- SECTION:NOTES:BEGIN -->
@@ -53,4 +60,6 @@ From INB-002 round 3 N1: commit delivery only after finishOp(focus, confirmed); 
 From INB-005 round 1 N1: writeBridgeSettings defaults the hook script to import.meta.dir/main.ts and Bun to process.execPath; pin stable paths (INB-020 for the installed build).
 
 From M1 round 2 N3: once dispatch has started, a timeout or doubt makes the attempt uncertain, not blocked; a blocked attempt refuses (erases) a late opening prompt.
+
+Built in f548845. Design choices for review: a failed workspace create/ensure fails the attempt with HERDR_UNAVAILABLE (no op exists for it; at worst an empty inbox workspace is left). After dispatch began, doubt means uncertain, never blocked (M1 N3). A failed agent read is never 'gone'. The dialog-blocked start is focused without an op (focus is idempotent and carries no context). The workspace id is remembered per socket in <home>\herdr-state.json. open starts a worker only for a new attempt; picking up a reused one is retry (INB-008). Evidence: test/unit/worker.test.ts (27), CLI open tests (detached worker ends the attempt after the CLI exited). Unverified until INB-007: real Herdr answers for agent start/prompt/focus, state_change_seq behaviour, and that the worker survives its caller's tab closing.
 <!-- SECTION:NOTES:END -->
