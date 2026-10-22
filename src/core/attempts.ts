@@ -323,8 +323,15 @@ export class Attempts {
     this.fencedWrite(attemptId, gen, (a) => this.patch(a.id, { ...layout }));
   }
 
-  setAvailability(attemptId: string, availability: Availability) {
-    this.inbox.write(() => this.patch(attemptId, { availability }));
+  // Availability describes a delivered session (spec §13), so only a succeeded attempt records
+  // it; the check is in the same statement, so a late answer cannot land on the wrong state.
+  setAvailability(attemptId: string, availability: Availability): boolean {
+    return this.inbox.write(
+      () =>
+        this.db
+          .query("UPDATE attempts SET availability = ?, updated_at = ? WHERE id = ? AND status = 'succeeded'")
+          .run(availability, this.inbox.now(), attemptId).changes > 0,
+    );
   }
 
   // Intent log: persist `started` before an external side effect. If the op is already
@@ -656,8 +663,9 @@ export class Attempts {
       if (a.status !== "in_progress") next.push("retry");
       next.push("abandon");
     } else if (a.status === "succeeded") {
-      // A session known to be gone is not offered for focus; its reference always is.
-      if (a.availability !== "closed") next.push("focus");
+      // Focus is offered while the verified session may still be there (spec §4.2 step 9): not
+      // when it is gone or another session holds its alias. Its reference always is.
+      if (a.availability !== "closed" && a.availability !== "unknown") next.push("focus");
       next.push("copy_session_reference");
     }
     return {

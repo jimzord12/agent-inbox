@@ -34,6 +34,7 @@ export async function focusItem(inbox: Inbox, herdrFor: (socketPath: string) => 
   try {
     info = await herdr.agent(alias);
   } catch (err) {
+    if (!(err instanceof HerdrError)) throw err;
     seen("unavailable");
     throw new InboxError("HERDR_UNAVAILABLE", `Herdr could not be asked about the session: ${herdrCode(err)}.`, { ...reference, herdr_code: herdrCode(err) });
   }
@@ -49,6 +50,7 @@ export async function focusItem(inbox: Inbox, herdrFor: (socketPath: string) => 
   try {
     await herdr.focus(alias);
   } catch (err) {
+    if (!(err instanceof HerdrError)) throw err;
     throw new InboxError("HERDR_UNAVAILABLE", `Herdr could not focus the session: ${herdrCode(err)}.`, { ...reference, herdr_code: herdrCode(err) });
   }
   return { ...reference, focused: true, availability: "live" };

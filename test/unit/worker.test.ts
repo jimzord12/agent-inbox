@@ -1050,7 +1050,8 @@ describe("availability after delivery (INB-011)", () => {
     await expect(focusItem(f.inbox, () => fake.herdr(), attempt.item_id)).rejects.toMatchObject({ code: "AGENT_UNAVAILABLE", details: { availability: "unknown" } });
     expect(fake.focused.length).toBe(focused);
     expect(at.get(attempt.id).availability).toBe("unknown");
-    expect(at.get(attempt.id).next_actions).toContain("focus");
+    // Focus would keep failing until that exact session is back: it is not offered.
+    expect(at.get(attempt.id).next_actions).toEqual(["copy_session_reference"]);
   });
 
   test("Herdr not answering marks the session unavailable and changes nothing else", async () => {
@@ -1061,6 +1062,7 @@ describe("availability after delivery (INB-011)", () => {
     // Once Herdr is back and the session lives, focus works again.
     fake.hooks.before = undefined;
     expect(await focusItem(f.inbox, () => fake.herdr(), attempt.item_id)).toMatchObject({ availability: "live" });
+    expect(at.get(attempt.id).availability).toBe("live");
   });
 
   test("get lists every attempt of the item, newest first, with its session reference", async () => {
@@ -1072,5 +1074,33 @@ describe("availability after delivery (INB-011)", () => {
     expect(list.map((a) => a.attempt_id).sort()).toEqual([attempt.id, fresh.id].sort());
     expect(list.find((a) => a.attempt_id === fresh.id)).toMatchObject({ status: "in_progress", delivered_at: null });
     expect(list.find((a) => a.attempt_id === attempt.id)!.delivered_at).not.toBeNull();
+  });
+});
+
+describe("INB-011 review round 1", () => {
+  test("availability is recorded only for a delivered session, never for one still starting", async () => {
+    const attempt = openAttempt();
+    // The alias is saved before Claude starts; a focus at that moment finds no agent yet.
+    const fake: FakeHerdr = new FakeHerdr({ ...bridge(), onStart: (a): { timeout: true } => (fake.agents.delete(a.name), { timeout: true }) });
+    await runWorker(fake, attempt.id);
+    const before = at.get(attempt.id).availability;
+    await expect(focusItem(f.inbox, () => fake.herdr(), attempt.item_id)).rejects.toMatchObject({ code: "AGENT_UNAVAILABLE" });
+    expect(at.get(attempt.id).availability).toBe(before);
+    expect(at.setAvailability(attempt.id, "closed")).toBe(false);
+  });
+
+  test("get always lists the delivered attempt, however many abandoned ones follow it", async () => {
+    const attempt = openAttempt();
+    await runWorker(new FakeHerdr(bridge()), attempt.id);
+    f.inbox.restore(attempt.item_id, f.inbox.get(attempt.item_id).state_version);
+    for (let i = 0; i < 21; i++) {
+      f.clock.advance(1000);
+      at.abandon(at.open(attempt.item_id, 1, { fresh: true }).attempt.id);
+    }
+    const list = f.inbox.get(attempt.item_id).attempts;
+    expect(list.some((a) => a.attempt_id === attempt.id && a.status === "succeeded")).toBe(true);
+    expect(list.filter((a) => a.status === "failed")).toHaveLength(20);
+    // Newest first.
+    expect([...list].sort((x, y) => (x.created_at < y.created_at ? 1 : -1)).map((a) => a.attempt_id)).toEqual(list.map((a) => a.attempt_id));
   });
 });

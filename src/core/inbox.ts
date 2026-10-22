@@ -1,5 +1,6 @@
 import type { Database } from "bun:sqlite";
 import { type Clock, newId, systemClock, toStored } from "./clock";
+import type { AttemptStatus, Availability, Phase } from "./attempts";
 import { type OpenOptions, openStore, type StoreInfo } from "./db";
 import { InboxError, fromStoreError } from "./errors";
 import { dbPath, ensureHome } from "./home";
@@ -97,12 +98,12 @@ export interface ItemDetail extends ItemView {
 export interface AttemptSummary {
   attempt_id: string;
   content_revision: number;
-  status: string;
-  phase: string;
+  status: AttemptStatus;
+  phase: Phase;
   error_code: string | null;
   profile_id: string;
   session_uuid: string;
-  availability: string;
+  availability: Availability;
   created_at: string;
   delivered_at: string | null;
 }
@@ -582,9 +583,15 @@ export class Inbox {
         `SELECT a.id AS attempt_id, a.content_revision, a.status, a.phase, a.error_code, a.profile_id, a.session_uuid,
            a.availability, a.created_at,
            (SELECT e.at FROM events e WHERE e.attempt_id = a.id AND e.type = 'handoff.delivered') AS delivered_at
-         FROM attempts a WHERE a.item_id = ? ORDER BY a.created_at DESC, a.id DESC LIMIT 20`,
+         FROM attempts a
+         WHERE a.item_id = ? AND (
+           -- Delivered and unfinished attempts are always listed; of the rest, the newest 20.
+           a.status IN ('succeeded', 'in_progress', 'blocked', 'uncertain')
+           OR a.id IN (SELECT id FROM attempts WHERE item_id = ? ORDER BY created_at DESC, id DESC LIMIT 20)
+         )
+         ORDER BY a.created_at DESC, a.id DESC`,
       )
-      .all(itemId) as AttemptSummary[];
+      .all(itemId, itemId) as AttemptSummary[];
   }
 
   blockingAttemptId(itemId: string): string | null {

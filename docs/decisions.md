@@ -164,6 +164,10 @@ Shell quirks on this machine:
 
 ## Build decisions (agent, 2026-10-22, from review loops)
 
+- **Session availability is refreshed only by `focus`** (INB-011): reads never call Herdr, so
+  `get` and the attempt view show the last value `focus` recorded (live, closed, unknown,
+  unavailable), and only for a delivered attempt. Focus is offered unless the session is closed or
+  another session holds its alias.
 - **A busy store at SessionStart is tried once more** (INB-010): Claude runs SessionStart only
   once, so a startup lost to a busy store would leave the session unbound and the attempt blocked.
   Worst case about 8 s, inside the 15 s hook timeout; still busy, the hook passes silently and the
