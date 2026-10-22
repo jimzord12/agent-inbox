@@ -355,9 +355,12 @@ export class Attempts {
       const prev = this.db.query("SELECT state FROM attempt_ops WHERE attempt_id = ? AND op = ?").get(a.id, op) as { state: OpState } | null;
       const allowed = prev?.state === "started" || (prev?.state === "uncertain" && !(op === "dispatch_prompt" && state === "failed"));
       if (!allowed) throw new InboxError("STATE_CONFLICT", `Op ${op} is ${prev?.state ?? "not started"}; it cannot become ${state}.`);
+      // The finishing detail is merged into the one recorded at the start (e.g. the dispatch's
+      // settle baseline), never replacing it.
+      const merged = detail ? JSON.stringify({ ...(prevDetail(this.db, a.id, op) ?? {}), ...detail }) : null;
       this.db
         .query("UPDATE attempt_ops SET state = ?, finished_at = ?, detail_json = COALESCE(?, detail_json) WHERE attempt_id = ? AND op = ?")
-        .run(state, this.inbox.now(), detail ? JSON.stringify(detail) : null, a.id, op);
+        .run(state, this.inbox.now(), merged, a.id, op);
       if (op === "dispatch_prompt" && a.prompt_state === "started") {
         if (state === "uncertain") this.patch(a.id, { prompt_state: "uncertain" });
         // A definitive rejection proves the prompt was not delivered.
@@ -679,6 +682,11 @@ export class Attempts {
       next_actions: next,
     };
   }
+}
+
+function prevDetail(db: Inbox["db"], attemptId: string, op: OpName): Record<string, unknown> | null {
+  const r = db.query("SELECT detail_json FROM attempt_ops WHERE attempt_id = ? AND op = ?").get(attemptId, op) as { detail_json: string | null } | null;
+  return r?.detail_json ? (JSON.parse(r.detail_json) as Record<string, unknown>) : null;
 }
 
 const RECEIPT_KEYS = ["attempt_id", "item_id", "content_revision", "packet_sha256", "challenge"].sort().join(",");

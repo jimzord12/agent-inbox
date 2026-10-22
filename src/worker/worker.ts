@@ -23,7 +23,16 @@ import { type AgentInfo, type Herdr, HerdrError } from "../herdr/adapter";
 //
 // Every external side effect is recorded as an op before it happens. An op that is already
 // recorded is never performed again by this worker; an unclear outcome leaves the attempt
-// uncertain or blocked for the user (retry and reconcile are INB-008 / INB-009).
+// uncertain or blocked for the user.
+//
+// Retry (`retry: true`, spec §13) runs the same walk on a blocked or uncertain attempt after
+// lifting it, and reconciles each recorded op instead of refusing it:
+//   confirmed            skipped (its result is in the attempt)
+//   failed               cleared and done again: a definitive refusal proves it never happened
+//   started / uncertain  observed, never repeated: create_tab stays uncertain (INB-009 finds
+//                        orphan tabs); start_agent continues only if Herdr shows the attempt's
+//                        own session in its pane; dispatch_prompt is never sent again, the
+//                        bridge's acceptance settles it; focus carries no context, so it is redone
 
 export interface WorkerTiming {
   leaseMs: number;
@@ -57,6 +66,8 @@ export interface WorkerDeps {
   // The bridge hook's Bun and script; default to this process and src/bridge/main.ts.
   bunPath?: string;
   hookScript?: string;
+  // An explicit user retry of a blocked or uncertain attempt (`agent-inbox retry`).
+  retry?: boolean;
 }
 
 // Raised inside the worker to stop the walk once the attempt has been moved to its next state.
@@ -119,13 +130,17 @@ export class Worker {
     const gen = this.at.claim(this.attemptId, this.d.owner, this.t.leaseMs);
     if (gen === null) return null;
     this.gen = gen;
-    // A claim also succeeds on a blocked or uncertain attempt. Picking those up is retry and
-    // reconcile (INB-008, INB-009); this worker only runs an attempt that is in progress.
-    if (this.row.status !== "in_progress") {
-      this.at.release(this.attemptId, gen);
-      return null;
+    // A claim also succeeds on a blocked or uncertain attempt. Only an explicit retry lifts it;
+    // otherwise this worker runs an attempt that is in progress and nothing else.
+    const status = this.row.status;
+    if (status !== "in_progress") {
+      if (!this.d.retry) {
+        this.at.release(this.attemptId, gen);
+        return null;
+      }
+      this.at.resume(this.attemptId, gen);
     }
-    this.log(`claimed generation ${gen}`);
+    this.log(`claimed generation ${gen}${this.d.retry ? ` for a retry (was ${status})` : ""}`);
     const renew = setInterval(() => this.renew(), Math.max(10, Math.floor(this.t.leaseMs / 3)));
     try {
       await this.walk();
@@ -173,8 +188,11 @@ export class Worker {
   // ---- preflight ----------------------------------------------------------
 
   private preflight(): { dir: string } | null {
-    this.at.setPhase(this.attemptId, this.gen, "preflight");
     const a = this.row;
+    // On a retry past layout, the launch already happened: its checks are history, and only
+    // the steps after it run.
+    if (this.d.retry && a.pane_id) return { dir: "" };
+    this.at.setPhase(this.attemptId, this.gen, "preflight");
     let cwdOk = false;
     try {
       cwdOk = statSync(a.cwd).isDirectory();
@@ -215,6 +233,11 @@ export class Worker {
     this.at.setPhase(this.attemptId, this.gen, "create_layout");
     const a = this.row;
     if (a.pane_id) return { paneId: a.pane_id };
+    if (this.d.retry) {
+      const st = this.opState("create_tab");
+      if (st === "failed") this.at.clearFailedOp(a.id, this.gen, "create_tab");
+      else if (st) return this.end("uncertain", "DELIVERY_UNCERTAIN", `Tab creation is ${st} with no recorded tab; reconcile or abandon.`);
+    }
     const socket = this.d.config.herdr.socket_path;
     let workspaceId: string;
     try {
@@ -261,6 +284,12 @@ export class Worker {
     const a = this.row;
     const alias = agentAlias(a.id);
     const files = bridgeFiles(this.d.inbox.home, a.id);
+    if (this.d.retry) {
+      const st = this.opState("start_agent");
+      if (st === "confirmed") return this.verifyTarget(alias);
+      if (st === "failed") this.at.clearFailedOp(a.id, this.gen, "start_agent");
+      else if (st) return this.observeStart(alias, st);
+    }
     if (!this.begin("start_agent", { alias })) return null;
     this.at.recordLayout(a.id, this.gen, { agent_alias: alias });
     try {
@@ -284,6 +313,23 @@ export class Worker {
       if (!(await this.watchBlockedStart(alias))) return null;
     }
     return this.verifyTarget(alias);
+  }
+
+  // Retry of a start whose outcome was never seen: continue only if Herdr shows the attempt's
+  // own session in its pane, or a startup held by a dialog; never start Claude a second time.
+  private async observeStart(alias: string, st: string): Promise<AgentInfo | null> {
+    const a = this.row;
+    const info = await this.readAgent(alias);
+    const session = info?.agent_session?.value;
+    if (info && info.pane_id === a.pane_id && (session === a.session_uuid || (!session && (info.agent_status === "blocked" || info.interactive_ready === false)))) {
+      if (session === a.session_uuid && info.agent_status !== "blocked" && info.interactive_ready !== false) {
+        this.at.finishOp(a.id, this.gen, "start_agent", "confirmed", { by: "retry observation" });
+        return this.verifyTarget(alias);
+      }
+      if (!(await this.watchBlockedStart(alias))) return null;
+      return this.verifyTarget(alias);
+    }
+    return this.end("uncertain", "AGENT_UNAVAILABLE", `Claude's start is ${st} and Herdr does not show the attempt's session; reconcile or abandon.`);
   }
 
   private async watchBlockedStart(alias: string): Promise<boolean> {
@@ -342,6 +388,15 @@ export class Worker {
     this.at.setPhase(this.attemptId, this.gen, "submit_context");
     const a = this.row;
     const alias = a.agent_alias!;
+    if (this.d.retry) {
+      const st = this.opState("dispatch_prompt");
+      // Only a definitive refusal (prompt_state rejected) allows a second send.
+      if (st === "failed" && a.prompt_state === "rejected") this.at.clearFailedOp(a.id, this.gen, "dispatch_prompt");
+      else if (st || a.prompt_state !== "none") {
+        this.log(`retry: the opening prompt is ${a.prompt_state} (op ${st ?? "none"}); not sent again`);
+        return true;
+      }
+    }
     // The settled state that counts must come after this point, not the startup idle.
     if (!this.begin("dispatch_prompt", { baseline_state_seq: agent.state_change_seq ?? null })) return false;
     try {
@@ -366,8 +421,11 @@ export class Worker {
   private async awaitReceipt(agent: AgentInfo): Promise<boolean | null> {
     this.check();
     this.at.setPhase(this.attemptId, this.gen, "await_receipt");
-    const baseline = agent.state_change_seq ?? -1;
+    // The baseline recorded with the dispatch, so a retry worker compares against the same point.
+    const recorded = this.opDetail("dispatch_prompt")?.baseline_state_seq;
+    const baseline = typeof recorded === "number" ? recorded : (agent.state_change_seq ?? -1);
     const until = Date.now() + this.t.receiptTimeoutMs;
+    let sawSession = false;
     for (;;) {
       this.check();
       const a = this.row;
@@ -380,6 +438,7 @@ export class Worker {
         if (info === null) return this.end("block", "AGENT_UNAVAILABLE", "Claude closed after acknowledging; the receipt is kept.");
         // A missing session id is looked at again, as in verifyTarget; only a different one blocks.
         const session = info?.agent_session?.value;
+        if (session) sawSession = true;
         if (info && ((session && session !== a.session_uuid) || info.pane_id !== a.pane_id)) {
           return this.end("block", "AGENT_UNAVAILABLE", "Herdr no longer reports the attempt's session in its pane.");
         }
@@ -391,7 +450,8 @@ export class Worker {
         // Not accepted yet: the prompt may still arrive. A blocked attempt would refuse (erase) it,
         // so the attempt becomes uncertain instead.
         if (a.prompt_state !== "accepted") return this.end("uncertain", "DELIVERY_UNCERTAIN", "The session has not accepted the opening prompt; nothing was resent.");
-        return this.end("block", "RECEIPT_INVALID", a.receipt_candidate_json ? "Claude has not settled after acknowledging." : "No valid acknowledgment yet; open the session to see why.");
+        if (!a.receipt_candidate_json) return this.end("block", "RECEIPT_INVALID", "No valid acknowledgment yet; open the session to see why.");
+        return this.end("block", "RECEIPT_INVALID", sawSession ? "Claude has not settled after acknowledging." : "Claude acknowledged, but Herdr never reported its session id.");
       }
       await this.sleep(this.t.pollMs);
     }
@@ -403,6 +463,18 @@ export class Worker {
     this.check();
     this.at.setPhase(this.attemptId, this.gen, "focus");
     const a = this.row;
+    if (this.d.retry) {
+      const st = this.opState("focus");
+      if (st === "confirmed") {
+        // Focused before, but the commit never happened.
+        this.at.commitDelivery(a.id, this.gen, JSON.parse(this.opRow("focus")?.detail_json ?? "{}"));
+        this.log("delivered");
+        return;
+      }
+      // Focus carries no context: an unclear or failed one is simply done again.
+      if (st === "started" || st === "uncertain") this.at.finishOp(a.id, this.gen, "focus", "failed", { by: "retry" });
+      if (st) this.at.clearFailedOp(a.id, this.gen, "focus");
+    }
     if (!this.begin("focus")) return;
     try {
       await this.d.herdr.focus(a.agent_alias!);
@@ -428,8 +500,17 @@ export class Worker {
     return false;
   }
 
+  private opRow(op: OpName) {
+    return this.at.ops(this.attemptId).find((o) => o.op === op);
+  }
+
   private opState(op: OpName) {
-    return this.at.ops(this.attemptId).find((o) => o.op === op)?.state;
+    return this.opRow(op)?.state;
+  }
+
+  private opDetail(op: OpName): Record<string, unknown> | undefined {
+    const d = this.opRow(op)?.detail_json;
+    return d ? (JSON.parse(d) as Record<string, unknown>) : undefined;
   }
 
   // null: no agent has the alias. undefined: the read failed, which never means "gone"

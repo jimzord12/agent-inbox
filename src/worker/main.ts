@@ -1,5 +1,5 @@
 #!/usr/bin/env bun
-// Handoff worker process: `bun main.ts <attempt id>`. Started detached by `agent-inbox open`
+// Handoff worker process: `bun main.ts <attempt id> [--retry]`. Started detached by `agent-inbox open`
 // with stdio ignored (docs/decisions.md, mod spike); diagnostics go to
 // <home>\attempts\<attempt id>\worker.log. The inbox home comes from the environment.
 import { hostname } from "node:os";
@@ -10,7 +10,7 @@ import { Inbox } from "../core/inbox";
 import { Herdr } from "../herdr/adapter";
 import { Worker, failBeforeStart } from "./worker";
 
-export async function run(attemptId: string) {
+export async function run(attemptId: string, retry = false) {
   const inbox = new Inbox({ home: resolveHome() });
   const owner = `worker:${process.pid}@${hostname()}`;
   try {
@@ -23,15 +23,15 @@ export async function run(attemptId: string) {
       return;
     }
     const herdr = new Herdr({ socketPath: config.herdr.socket_path });
-    await new Worker(attemptId, { inbox, herdr, config, owner }).run();
+    await new Worker(attemptId, { inbox, herdr, config, owner, retry }).run();
   } finally {
     inbox.close();
   }
 }
 
 if (import.meta.main) {
-  const [attemptId] = process.argv.slice(2);
+  const [attemptId, ...flags] = process.argv.slice(2);
   if (!attemptId) process.exit(2);
-  await run(attemptId);
+  await run(attemptId, flags.includes("--retry"));
   process.exit(0);
 }

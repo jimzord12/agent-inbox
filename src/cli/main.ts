@@ -140,6 +140,28 @@ const COMMANDS: Record<string, Command> = {
       return { attempt: new Attempts(inbox()).get(id!) };
     },
   },
+  // Reconcile first (spec §13): a worker picks the attempt up again in retry mode, observing
+  // what may have happened and repeating only what provably did not. A live worker is left alone.
+  retry: {
+    options: json,
+    positionals: 1,
+    run: (inbox, [id]) => {
+      const at = new Attempts(inbox());
+      const a = at.row(id!);
+      if (!["in_progress", "blocked", "uncertain"].includes(a.status) || a.revoked_at) {
+        throw new InboxError("STATE_CONFLICT", `The attempt is ${a.revoked_at ? "abandoned" : a.status}; nothing to retry.`, { status: a.status });
+      }
+      const leaseLive = !!a.lease_owner && !!a.lease_expires_at && a.lease_expires_at > inbox().now();
+      if (!leaseLive) startWorker(inbox(), a.id, ["--retry"]);
+      return { attempt_id: a.id, status: a.status, started: !leaseLive, attempt: at.get(a.id) };
+    },
+  },
+  // Revokes the attempt and releases the item. The session is not closed; its reference stays.
+  abandon: {
+    options: json,
+    positionals: 1,
+    run: (inbox, [id]) => ({ attempt: new Attempts(inbox()).abandon(id!) }),
+  },
   focus: {
     options: json,
     positionals: 1,
@@ -188,9 +210,9 @@ const COMMANDS: Record<string, Command> = {
 const WORKER = join(import.meta.dir, "..", "worker", "main.ts");
 
 // Detached with stdio ignored: an inherited pipe would hold the caller (the mod) until timeout.
-function startWorker(inbox: Inbox, attemptId: string) {
+function startWorker(inbox: Inbox, attemptId: string, extra: string[] = []) {
   try {
-    const child = spawn(process.execPath, [WORKER, attemptId], {
+    const child = spawn(process.execPath, [WORKER, attemptId, ...extra], {
       detached: true,
       stdio: "ignore",
       windowsHide: true,

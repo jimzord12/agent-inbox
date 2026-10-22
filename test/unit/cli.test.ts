@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { Attempts } from "../../src/core/attempts";
+import { Inbox } from "../../src/core/inbox";
 import { READY_MARKER, buildOpeningPrompt } from "../../src/core/packet";
 import { profilesPath } from "../../src/core/profiles";
 import { type Fixture, fixture } from "../helpers";
@@ -252,6 +253,47 @@ describe("open, attempt get", () => {
     expect({ fresh: fresh.out.data.attempt.fresh, reused: fresh.out.data.reused }).toEqual({ fresh: true, reused: false });
     expect(fresh.out.data.attempt_id).not.toBe(row.id);
     await settled(fresh.out.data.attempt_id);
+  });
+
+  test("retry picks up a blocked attempt in a new worker; a live worker is left alone; a closed one refuses", async () => {
+    const item = setup();
+    // The real clock, as the CLI uses: the fixture's fixed clock would make any lease look expired.
+    const live = new Inbox({ home: f.home });
+    const at = new Attempts(live);
+    const { attempt } = at.open(item.id, 1);
+    const g = at.claim(attempt.id, "someone", 60_000)!;
+    // Held by a live worker: nothing new starts.
+    expect(cli(["retry", attempt.id]).out.data).toMatchObject({ attempt_id: attempt.id, status: "in_progress", started: false });
+    at.block(attempt.id, g, "AGENT_BLOCKED", "dialog");
+    at.release(attempt.id, g);
+    const r = cli(["retry", attempt.id]);
+    expect(r.out.data).toMatchObject({ status: "blocked", started: true });
+    // The retry worker lifts the block and runs preflight, which finds the cwd gone.
+    let done = at.get(attempt.id);
+    for (let i = 0; i < 100 && done.status !== "failed"; i++) {
+      await Bun.sleep(100);
+      done = at.get(attempt.id);
+    }
+    expect(done).toMatchObject({ status: "failed", error: { code: "CWD_UNAVAILABLE" } });
+    const again = cli(["retry", attempt.id]);
+    expect({ code: again.code, err: again.out.error?.code }).toEqual({ code: 1, err: "STATE_CONFLICT" });
+    live.close();
+  });
+
+  test("abandon releases the item, keeps the session reference and revokes the capability", async () => {
+    const item = setup();
+    const at = new Attempts(f.inbox);
+    const { attempt } = at.open(item.id, 1);
+    const row = at.row(attempt.id);
+    const r = cli(["abandon", attempt.id]);
+    expect(r.out.data.attempt).toMatchObject({ status: "failed", revoked: true, session_uuid: row.session_uuid, error: { code: "ABANDONED" } });
+    expect(f.inbox.get(item.id).blocking_attempt_id ?? null).toBeNull();
+    expect(() => at.captureReceipt(row.id, row.capability, row.session_uuid, "x")).toThrow();
+    expect(at.acceptPrompt(row.id, row.capability, row.session_uuid, row.cwd, `[agent-inbox ${row.id}] x`)).toMatchObject({ ok: false, code: "ATTEMPT_CLOSED" });
+    const reopened = cli(["open", item.id, "--if-revision", "1"]);
+    expect(reopened.out.data).toMatchObject({ reused: false });
+    expect(reopened.out.data.attempt_id).not.toBe(row.id);
+    await settled(reopened.out.data.attempt_id);
   });
 
   test("usage: attempt needs `get`; open needs --if-revision", () => {

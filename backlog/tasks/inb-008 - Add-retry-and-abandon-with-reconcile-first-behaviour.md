@@ -1,10 +1,11 @@
 ---
 id: INB-008
 title: Add retry and abandon with reconcile-first behaviour
-status: To Do
-assignee: []
+status: In Review
+assignee:
+  - '@claude'
 created_date: '2026-10-22 07:06'
-updated_date: '2026-10-22 10:59'
+updated_date: '2026-10-22 11:20'
 labels:
   - 'type:feature'
   - worker
@@ -36,6 +37,12 @@ Retry first observes; it continues only a step proven not to have happened and n
 - [ ] #3 Gates green: bun run typecheck and bun run test pass on the committed revision
 <!-- DOD:END -->
 
+## Implementation Plan
+
+<!-- SECTION:PLAN:BEGIN -->
+1. Worker retry mode: lift the block, reconcile each recorded op (confirmed skip, failed redo, started/uncertain observe). 2. Settle baseline from the dispatch op detail. 3. CLI retry and abandon. 4. Tests.
+<!-- SECTION:PLAN:END -->
+
 ## Implementation Notes
 
 <!-- SECTION:NOTES:BEGIN -->
@@ -44,4 +51,6 @@ From INB-002 review N2: while an attempt is blocked for a replaced session, a la
 From INB-006 round 1: N3, a retry worker reads the settle baseline from the dispatch_prompt op detail (baseline_state_seq), not memory. N5, attempt next_actions already offers retry; this task makes it real. Attempts.resume(id, gen, onlyCode) lifts a specific block only.
 
 From INB-006 round 3 N1: when Herdr never reported the session id, the settle-timeout block message should say so (today: 'has not settled after acknowledging').
+
+Built: Worker retry mode (src/worker/worker.ts), worker main --retry, CLI retry ATTEMPT (starts a retry worker unless a live lease holds the attempt) and abandon ATTEMPT. Bug found by the tests and fixed in core: finishOp replaced the detail recorded at beginOp, losing the dispatch's settle baseline; details now merge (test). A failed focus is redone by retry (focus carries no context); a confirmed focus with no commit is committed without focusing again (no test yet: needs a crash between the two writes; carried to INB-010). A blocked attempt the bridge refused (wrong profile or replaced session) can be retried, but nothing is sent: the walk stops at the binding or identity check. INB-006 r3 N1 fixed: the settle timeout says when Herdr never reported the session id.
 <!-- SECTION:NOTES:END -->

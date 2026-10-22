@@ -473,3 +473,14 @@ describe("M1 milestone fixes", () => {
     expect(at.commitDelivery(r.id, g, {}).evidence.last_rejection).toBeNull();
   });
 });
+
+describe("INB-008", () => {
+  test("finishing an op merges its detail into the one recorded at the start", () => {
+    const { item } = f.inbox.submit(f.actionable());
+    const { attempt } = at.open(item.id, 1);
+    const g = at.claim(attempt.id, "w1", 60_000)!;
+    at.beginOp(attempt.id, g, "create_tab", { workspace_id: "w1" });
+    at.finishOp(attempt.id, g, "create_tab", "uncertain", { code: "timeout" });
+    expect(JSON.parse(at.ops(attempt.id)[0]!.detail_json!)).toEqual({ workspace_id: "w1", code: "timeout" });
+  });
+});

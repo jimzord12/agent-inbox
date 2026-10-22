@@ -64,9 +64,9 @@ function bridge(o: { bind?: "ok" | "wrong-dir" | "none"; accept?: boolean; recei
 
 let currentId = "";
 
-async function runWorker(fake: FakeHerdr, attemptId: string) {
+async function runWorker(fake: FakeHerdr, attemptId: string, retry = false) {
   currentId = attemptId;
-  return new Worker(attemptId, { inbox: f.inbox, herdr: fake.herdr(), config, owner: "w-test", timing }).run();
+  return new Worker(attemptId, { inbox: f.inbox, herdr: fake.herdr(), config, owner: "w-test", timing, retry }).run();
 }
 
 describe("worker: the happy path", () => {
@@ -526,5 +526,110 @@ describe("review round 2", () => {
     expect(at.get(attempt.id)).toMatchObject({ status: "blocked", error: { code: "AGENT_BLOCKED" } });
     expect(at.row(attempt.id).lease_owner).toBeNull();
     expect(fake.calls).toHaveLength(0);
+  });
+});
+
+describe("retry (INB-008): observe first, repeat only what provably did not happen", () => {
+  const count = (fake: FakeHerdr, verb: string) => fake.verbs().filter((v) => v === verb).length;
+
+  test("a receipt with a failed focus: retry only reads, refocuses and commits", async () => {
+    const attempt = openAttempt();
+    const fake = new FakeHerdr({ ...bridge(), before: (verb) => (verb === "agent focus" ? { error: "agent_not_found" } : undefined) });
+    expect(await runWorker(fake, attempt.id)).toMatchObject({ status: "blocked", phase: "focus" });
+    fake.hooks.before = undefined;
+    const before = fake.calls.length;
+    const view = await runWorker(fake, attempt.id, true);
+    expect(view).toMatchObject({ status: "succeeded", evidence: { delivered: true } });
+    expect(new Set(fake.verbs().slice(before))).toEqual(new Set(["agent get", "agent focus"]));
+    expect(count(fake, "agent prompt")).toBe(1);
+    expect(count(fake, "agent start")).toBe(1);
+  });
+
+  test("after a recorded dispatch the prompt is never sent again; a late acceptance and receipt deliver", async () => {
+    const attempt = openAttempt();
+    const hooks = bridge();
+    let held: [import("./fixtures/fake-herdr").FakeAgent, string] | null = null;
+    // The prompt lands, but the answer is lost and the bridge has not reported yet.
+    const fake = new FakeHerdr({ ...hooks, onPrompt: (a, t) => ((held = [a, t]), { timeout: true }) });
+    expect(await runWorker(fake, attempt.id)).toMatchObject({ status: "uncertain", evidence: { prompt_state: "uncertain" } });
+    hooks.onPrompt!(...held!);
+    const view = await runWorker(fake, attempt.id, true);
+    expect(view).toMatchObject({ status: "succeeded" });
+    expect(count(fake, "agent prompt")).toBe(1);
+  });
+
+  test("after a recorded dispatch with still no acceptance, retry stays uncertain and sends nothing", async () => {
+    const attempt = openAttempt();
+    const fake = new FakeHerdr({ ...bridge({ accept: false }), onPrompt: () => ({ timeout: true }) });
+    await runWorker(fake, attempt.id);
+    expect(await runWorker(fake, attempt.id, true)).toMatchObject({ status: "uncertain", error: { code: "DELIVERY_UNCERTAIN" } });
+    expect(count(fake, "agent prompt")).toBe(1);
+  });
+
+  test("a prompt Herdr definitively refused is sent again by retry, once", async () => {
+    const attempt = openAttempt();
+    const hooks = bridge();
+    let refuse = true;
+    const fake = new FakeHerdr({ ...hooks, onPrompt: (a, t) => (refuse ? { error: "agent_blocked" } : hooks.onPrompt!(a, t)) });
+    expect(await runWorker(fake, attempt.id)).toMatchObject({ status: "blocked", error: { code: "AGENT_BLOCKED" }, evidence: { prompt_state: "rejected" } });
+    refuse = false;
+    expect(await runWorker(fake, attempt.id, true)).toMatchObject({ status: "succeeded" });
+    expect(count(fake, "agent prompt")).toBe(2);
+  });
+
+  test("a tab creation with no recorded result stays uncertain; no second tab", async () => {
+    const attempt = openAttempt();
+    const fake = new FakeHerdr({ ...bridge(), before: (verb) => (verb === "tab create" ? { timeout: true } : undefined) });
+    await runWorker(fake, attempt.id);
+    fake.hooks.before = undefined;
+    expect(await runWorker(fake, attempt.id, true)).toMatchObject({ status: "uncertain", error: { code: "DELIVERY_UNCERTAIN" } });
+    expect(count(fake, "tab create")).toBe(1);
+  });
+
+  test("a lost start answer continues only when Herdr shows the attempt's own session; Claude is never started twice", async () => {
+    const attempt = openAttempt();
+    const hooks = bridge();
+    const fake = new FakeHerdr({ ...hooks, onStart: (a, args) => (hooks.onStart!(a, args), { timeout: true }) });
+    expect(await runWorker(fake, attempt.id)).toMatchObject({ status: "uncertain", phase: "start_agent" });
+    expect(await runWorker(fake, attempt.id, true)).toMatchObject({ status: "succeeded" });
+    expect(count(fake, "agent start")).toBe(1);
+  });
+
+  test("a lost start answer with no session in Herdr stays uncertain", async () => {
+    const attempt = openAttempt();
+    const fake: FakeHerdr = new FakeHerdr({ ...bridge(), onStart: (a): { timeout: true } => (fake.agents.delete(a.name), { timeout: true }) });
+    await runWorker(fake, attempt.id);
+    expect(await runWorker(fake, attempt.id, true)).toMatchObject({ status: "uncertain", error: { code: "AGENT_UNAVAILABLE" } });
+    expect(count(fake, "agent start")).toBe(1);
+  });
+
+  test("a retry worker settles against the baseline recorded with the dispatch", async () => {
+    const attempt = openAttempt();
+    // Receipt arrives, but Herdr never shows a new settled state: blocked.
+    const fake = new FakeHerdr(bridge({ settle: false }));
+    await runWorker(fake, attempt.id);
+    const agent = fake.agents.get(agentAlias(attempt.id))!;
+    // The session settles later. Its state counter is above the recorded baseline, though the
+    // retry worker's own first read already sees that value.
+    agent.agent_status = "idle";
+    agent.state_change_seq += 1;
+    expect(await runWorker(fake, attempt.id, true)).toMatchObject({ status: "succeeded" });
+  });
+
+  test("the settle timeout says when Herdr never reported the session id", async () => {
+    const attempt = openAttempt();
+    const hooks = bridge();
+    const fake = new FakeHerdr({ ...hooks, onPrompt: (a, t) => void (hooks.onPrompt!(a, t), (a.session = null)) });
+    const view = await runWorker(fake, attempt.id);
+    expect(view!.error!.message).toContain("never reported its session id");
+  });
+
+  test("without retry, a worker never lifts a block", async () => {
+    const attempt = openAttempt();
+    const fake = new FakeHerdr({ ...bridge(), before: (verb) => (verb === "agent focus" ? { error: "agent_not_found" } : undefined) });
+    await runWorker(fake, attempt.id);
+    fake.hooks.before = undefined;
+    expect(await runWorker(fake, attempt.id)).toBeNull();
+    expect(at.get(attempt.id).status).toBe("blocked");
   });
 });
