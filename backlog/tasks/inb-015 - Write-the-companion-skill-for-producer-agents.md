@@ -4,6 +4,7 @@ title: Write the companion skill for producer agents
 status: To Do
 assignee: []
 created_date: '2026-10-22 07:06'
+updated_date: '2026-10-22 07:14'
 labels:
   - 'type:docs'
   - skill
@@ -23,7 +24,6 @@ Producer projects install a skill so their agents know when and how to submit: d
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
 - [ ] #1 the skill teaches submit, update and events with a worked example of each
-- [ ] #2 a fresh agent given only the skill submits a valid actionable item on the first try (checked in M6)
 <!-- AC:END -->
 
 ## Definition of Done

@@ -29,7 +29,7 @@ Orient read-only, in this order:
 
 ```sh
 bun install
-bun run typecheck && bun test          # the gate for every commit
+bun run typecheck && bun run test      # the gate for every commit (unit tests only; live runs never)
 bun src/cli/main.ts <command> --json   # the CLI from the checkout
 backlog task list --plain              # the work (Backlog.md 1.52.0)
 ```
@@ -58,4 +58,7 @@ backlog task list --plain              # the work (Backlog.md 1.52.0)
 - No production anything; the machine-wide production guard applies.
 - Native Windows only, no WSL. Git Bash: `cd x; y`, never `cd x && y`; write files over ~6 KB with
   a file tool, not a heredoc.
+- Live/e2e code lives under `test/e2e/` and runs only through its own explicit command; the gate
+  (`bun run test`) runs `test/unit/` only. Never name a live-run file `*.test.ts` outside `test/unit/`
+  thinking it is safe: bare `bun test` would pick it up.
 - English in the repository; LF line endings.

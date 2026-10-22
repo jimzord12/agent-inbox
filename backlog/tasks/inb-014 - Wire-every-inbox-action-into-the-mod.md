@@ -4,6 +4,7 @@ title: Wire every inbox action into the mod
 status: To Do
 assignee: []
 created_date: '2026-10-22 07:06'
+updated_date: '2026-10-22 07:14'
 labels:
   - 'type:feature'
   - mod
@@ -26,6 +27,7 @@ Open session, Open with profile, Open fresh session (only as its own action), Ac
 - [ ] #1 each action calls the matching CLI command and shows its error code and message on failure
 - [ ] #2 Open session never injects anything into the conversation hosting the mod
 - [ ] #3 a nonexistent or ambiguous local time (DST) is refused with a clear message
+- [ ] #4 a live smoke through /inbox per evaluation plan section 10 is recorded: one informational acknowledge, one actionable open, one failed open then retry, and the same item opened at once from the mod and the CLI giving one attempt
 <!-- AC:END -->
 
 ## Definition of Done

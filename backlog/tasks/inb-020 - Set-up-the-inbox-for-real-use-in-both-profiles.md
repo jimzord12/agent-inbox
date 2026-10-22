@@ -4,14 +4,16 @@ title: Set up the inbox for real use in both profiles
 status: To Do
 assignee: []
 created_date: '2026-10-22 07:10'
+updated_date: '2026-10-22 07:14'
 labels:
   - 'type:chore'
   - mod
   - cli
-milestone: m-4
+milestone: m-5
 dependencies:
   - INB-014
   - INB-016
+  - INB-019
 priority: medium
 ordinal: 20000
 ---

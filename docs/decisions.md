@@ -81,8 +81,21 @@ session). Rules that follow from it:
 - The mod pages long handoff previews itself (engine limit: 100,000 characters per tree).
 - `agent-inbox open` starts its worker detached with stdio `ignore`; an inherited pipe
   makes the mod's process call hang until timeout.
-- Permanent use needs a one-time install per profile (local folder marketplace). Not
-  done; needs the user's word, since it changes each profile's plugin config.
+- Permanent use needs a one-time install per profile (local folder marketplace). Approved by
+  the owner on 2026-10-22 for the end of the build (INB-020).
+
+**Spec §15 criteria that name the TUI, mapped to this design:**
+- "The TUI works outside Herdr and while Herdr/Claude are unavailable" → the **CLI** (list, get,
+  read, acknowledge, snooze, archive, restore, status) works without Herdr; the mod needs Claude
+  by nature and is not held to this line.
+- "Removing all producer code leaves the TUI … functional" → leaves the **CLI and the mod** functional.
+- "Removing the mod changes none of [the commands, records, errors, lifecycle]" → holds as written:
+  the CLI is the only contract.
+
+**Herdr endpoint for evaluation (deviation from evaluation plan §4):** live runs use a dedicated
+**workspace** on the owner's default Herdr server, not a separate named Herdr session/endpoint. Reason:
+one server is what the owner runs; a workspace keeps runs apart without starting another server.
+Every run still pins the socket explicitly and never touches the owner's workspaces.
 
 **Out of scope (level D, not being built):** the passive pending indicator; the evaluation harness with fault
 barriers for E09/E10; the skill A/B experiment (E12); a calibrated LLM judge;
@@ -138,5 +151,5 @@ Shell quirks on this machine:
 
 ## Conventions
 
-- Commit subjects: `<Scope>: <Description>`.
+- Commit subjects: `<Scope>: <Description> (INB-<nnn>)`, the task id zero-padded as on the board.
 - All repo content in English. Talk to the user in Greek.

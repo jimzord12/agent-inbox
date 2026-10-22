@@ -4,6 +4,7 @@ title: 'Run the live smoke scenarios E01, E04 and E05'
 status: To Do
 assignee: []
 created_date: '2026-10-22 07:06'
+updated_date: '2026-10-22 07:14'
 labels:
   - 'type:test'
   - eval
@@ -27,6 +28,9 @@ Evaluation plan §9: E01 (a real producer leaves usable work), E04 (correct prof
 <!-- AC:BEGIN -->
 - [ ] #1 each scenario has a stored report with gates and rubric scores
 - [ ] #2 every critical-gate failure is fixed or filed before moving on
+- [ ] #3 E01 shows that a fresh agent given only the companion skill submits a valid actionable item on the first try (moved from INB-015)
+- [ ] #4 E04 delivers one personal-profile item into a session using the .claude-personal folder and one work item using .claude-work, with both launch fingerprints and bindings recorded
+- [ ] #5 two unrelated example producers use only the public JSON contract and neither is imported by the inbox
 <!-- AC:END -->
 
 ## Definition of Done

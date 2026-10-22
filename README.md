@@ -7,7 +7,7 @@ A local inbox for AI agents and scripts on native Windows.
 - An actionable item **opens** a fresh Claude Code session in a new Herdr tab: right profile, right folder, handoff already read, agent waiting.
 - An item counts as **delivered** only after the new session proves it received the exact handoff.
 
-Status: under construction. Nothing here runs yet.
+Status: under construction. The core and the JSON CLI run; opening sessions, the `/inbox` mod and the producer skill are being built (see `backlog task list --plain`).
 
 ## Docs
 
@@ -24,6 +24,7 @@ src/cli/      the agent-inbox command
 src/worker/   per-attempt handoff worker
 src/herdr/    Herdr adapter
 src/bridge/   Claude receipt-bridge hooks
+mod/          the /inbox Claude Code mod (the owner's inbox view)
 skill/        companion skill for producer projects
 test/         bun test (unit, concurrency, faults); test/e2e for live runs
 ```

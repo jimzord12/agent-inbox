@@ -4,6 +4,7 @@ title: Reconcile unfinished attempts after a crash or lease expiry
 status: To Do
 assignee: []
 created_date: '2026-10-22 07:06'
+updated_date: '2026-10-22 07:14'
 labels:
   - 'type:feature'
   - worker
@@ -25,7 +26,8 @@ A replacement worker reads the intent log and live Herdr state; ambiguous steps 
 - [ ] #1 an expired lease lets a new worker in and fences the old one out of every write
 - [ ] #2 a started tab creation with no recorded result is matched to a tab only by attempt provenance plus session binding, otherwise left uncertain
 - [ ] #3 a late valid receipt is reconciled without resubmitting the prompt
-- [ ] #4 running the CLI or opening the mod reconciles unfinished attempts without launching anything new
+- [ ] #4 running any agent-inbox command that reads attempts reconciles unfinished ones without launching anything new
+- [ ] #5 after a Herdr server restart or reconnect, a reused pane id or a replaced occupant is never treated as the old session; context is not sent until the session binding is re-established
 <!-- AC:END -->
 
 ## Definition of Done

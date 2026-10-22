@@ -4,6 +4,7 @@ title: 'Run the handoff worker and the open, attempt and focus commands'
 status: To Do
 assignee: []
 created_date: '2026-10-22 07:06'
+updated_date: '2026-10-22 07:14'
 labels:
   - 'type:feature'
   - worker
@@ -30,6 +31,7 @@ agent-inbox open reserves an attempt and starts a detached worker with stdio ign
 - [ ] #3 the launch sets CLAUDE_CONFIG_DIR explicitly, passes --session-id and --settings, and uses a unique per-attempt agent alias
 - [ ] #4 the item becomes delivered only after receipt candidate, a new settled state and a successful focus
 - [ ] #5 attempt get shows phase, evidence and safe next actions; focus never sends context
+- [ ] #6 open --profile P records an override on the attempt without changing the payload; open --fresh is required to reopen a delivered revision, and the CLI never adds it implicitly
 <!-- AC:END -->
 
 ## Definition of Done

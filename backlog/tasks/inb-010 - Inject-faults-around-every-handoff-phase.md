@@ -4,6 +4,7 @@ title: Inject faults around every handoff phase
 status: To Do
 assignee: []
 created_date: '2026-10-22 07:06'
+updated_date: '2026-10-22 07:14'
 labels:
   - 'type:test'
   - worker
@@ -25,6 +26,7 @@ Acceptance list 'Crash and storage recovery' in docs/generic-agent-inbox-spec.md
 - [ ] #1 faults after layout creation, agent start, prompt dispatch, receipt capture, focus and before the final commit are each tested
 - [ ] #2 a lost prompt response leaves the attempt uncertain; repeated opens create no second session
 - [ ] #3 a busy store and a backup/restore keep committed snapshots, attempts and events
+- [ ] #4 a full disk or database-full error during a write leaves no partial item, attempt or event and returns a clear error
 <!-- AC:END -->
 
 ## Definition of Done

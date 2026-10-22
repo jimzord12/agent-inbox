@@ -4,12 +4,14 @@ title: Show the inbox list in a Claude Code mod
 status: To Do
 assignee: []
 created_date: '2026-10-22 07:06'
+updated_date: '2026-10-22 07:14'
 labels:
   - 'type:feature'
   - mod
 milestone: m-3
 dependencies:
   - INB-006
+  - INB-009
 priority: high
 ordinal: 12000
 ---
@@ -26,6 +28,8 @@ The user's inbox view is a Claude Code mod (/inbox), proven sufficient by the 20
 - [ ] #2 refresh every 2 s while visible keeps the selection by item id and never overlaps calls
 - [ ] #3 every producer string is stripped of control and escape characters before it reaches the pane
 - [ ] #4 the installed mod validation and type-check pass
+- [ ] #5 opening /inbox triggers the same reconciliation as the CLI and launches nothing
+- [ ] #6 the mod preflight facts of spec section 14 step 7 (policy, generated types, validation tooling) are recorded in docs/preflight.md section 6
 <!-- AC:END -->
 
 ## Definition of Done

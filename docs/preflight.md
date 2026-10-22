@@ -30,7 +30,7 @@ test/          `bun test` unit, concurrency and fault tests; test/e2e for live r
 - Shells: PowerShell 7 (`pwsh`), Git Bash. Herdr panes start the user's default shell.
 - The app will spawn `herdr` and `claude` by argv (`Bun.spawn`), never through a shell string.
 - Data home: `%LOCALAPPDATA%\agent-inbox` = `C:\Users\jimzord12\AppData\Local\agent-inbox`. `AGENT_INBOX_HOME` is unset today.
-- **Detached worker works.** A `Bun.spawn(..., {detached: true})` child outlived its parent and wrote its file 3 s later. Still to verify in implementation: survival when the *Herdr tab* hosting the TUI is closed (ConPTY may kill attached children).
+- **Detached worker works.** A `Bun.spawn(..., {detached: true})` child outlived its parent and wrote its file 3 s later. Still to verify in implementation: the spike (docs/decisions.md) saw a detached worker outlive the CLI, the Claude session and its Herdr workspace; re-check with the real worker in INB-006.
 
 ## 3. Herdr 0.9.5 (read-only)
 
@@ -78,7 +78,7 @@ test/          `bun test` unit, concurrency and fault tests; test/e2e for live r
 
 ## 6. Mod support
 
-**Now in scope** (the mod replaces the TUI) but **not inspected yet**. Spec §14 step 7 (policy restrictions, installed mod API, generated type declarations, validation tooling) runs before any mod code. The core and CLI do not depend on it.
+**In scope; spike done** (docs/decisions.md, 2026-10-22): the mod works on 2.1.308 in both profiles via `claude --plugin-dir`. The full mod preflight facts (spec §14 step 7: policy, generated types, validation tooling) are recorded here by INB-012.
 
 ## 7. Still unverified — needs a real launch (implementation validation)
 
@@ -88,12 +88,12 @@ Each is checked in a disposable fixture dir in the `Agent Inbox` workspace, neve
 2. Hook input fields on 2.1.308: `session_id`, `cwd` (SessionStart), `prompt` (UserPromptSubmit), `last_assistant_message` (Stop), and that a `UserPromptSubmit` block really stops the prompt.
 3. What env the pane shell actually has (Herdr server env), per profile.
 4. Workspace trust dialog in a new fixture dir: expected to put the attempt in `blocked` on first run; the user accepts it once per fixture.
-5. Detached worker survives closing the Herdr tab that runs the TUI.
+5. Detached worker survives the mod's Claude session and its tab closing (seen in the spike; re-check with the real worker).
 6. `agent_session.value` equals the `--session-id` we passed.
 
 ## 8. Unresolved user decisions
 
-None block building. Still open, from decisions.md: GitHub visibility and when to add the remote; executable name.
+None. GitHub is decided (public, remote set up). The executable name stays `agent-inbox` unless the owner says otherwise.
 
 ## 9. End-to-end validation plan
 
