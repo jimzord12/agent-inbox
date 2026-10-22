@@ -4,7 +4,7 @@ title: Prove the first live launch on the work profile
 status: To Do
 assignee: []
 created_date: '2026-10-22 07:06'
-updated_date: '2026-10-22 07:26'
+updated_date: '2026-10-22 08:29'
 labels:
   - 'type:test'
   - live
@@ -39,3 +39,9 @@ Close the open points of docs/preflight.md section 7 for the work profile with a
 - [ ] #2 Evidence named in the final summary, with what remains unverified
 - [ ] #3 Gates green: bun run typecheck and bun run test pass on the committed revision
 <!-- DOD:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+From INB-003 review F2: during the first live launch, record the real Herdr answers for agent start (including agent_not_ready on a trust dialog), agent prompt, agent list, agent focus and workspace get, and swap them into test/unit/fixtures/herdr.ts, marked recorded.
+<!-- SECTION:NOTES:END -->

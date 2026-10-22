@@ -42,7 +42,9 @@ export interface WorkspaceInfo {
 }
 
 // Failure of a Herdr call. `outcome` says whether the side effect may have happened:
-// `rejected` = Herdr answered with an error (nothing done), `unknown` = no usable answer.
+// `rejected` = nothing was done (a read failed, or Herdr refused before acting);
+// `unknown` = it may have happened (timeout, no usable answer, or an error after acting).
+// `code` keeps Herdr's own code, e.g. `agent_not_ready` for a startup blocked on a dialog.
 export class HerdrError extends Error {
   constructor(
     readonly code: string,
@@ -77,9 +79,22 @@ const defaultRunner: Runner = async (argv, env, timeoutMs) => {
   }
 };
 
-// Herdr error codes after which the side effect may still have happened: `agent start` can
-// launch Claude without Herdr seeing it ready, and a stalled prompt may already be typed.
-const AMBIGUOUS_CODES = new Set(["timeout", "agent_prompt_stalled"]);
+// Error codes Herdr raises before a mutating call has any effect. Every other error answer to
+// a mutating call is `unknown`: `agent start` can answer `agent_not_ready` (Claude is up but
+// blocked, e.g. on a trust dialog), `agent_kind_mismatch` or `timeout` after launching, and a
+// prompt can fail after input was typed. Read calls have no effect, so their errors are rejected.
+const PRE_EFFECT_CODES = new Set([
+  "server_not_running",
+  "server_unavailable",
+  "agent_blocked",
+  "agent_name_taken",
+  "agent_pane_unavailable",
+  "agent_target_ambiguous",
+]);
+
+function preEffect(code: string): boolean {
+  return PRE_EFFECT_CODES.has(code) || code.endsWith("_not_found") || code.startsWith("invalid_");
+}
 
 // Herdr 0.9.5 writes a success envelope to stdout and an error envelope to stderr, each one
 // JSON object on the last line. Undefined when neither stream holds one.
@@ -99,7 +114,8 @@ function parseEnvelope<T>(stdout: string, stderr: string): { result?: T; error?:
 
 // Herdr variables inherited from a pane the caller happens to run in. Dropped so nothing
 // implicitly targets "the current pane/tab/workspace".
-const INHERITED_HERDR = ["HERDR_PANE_ID", "HERDR_TAB_ID", "HERDR_WORKSPACE_ID", "HERDR_ENV"];
+// HERDR_SESSION and HERDR_CLIENT_SOCKET_PATH are dropped too, so the socket is the only selector.
+const INHERITED_HERDR = ["HERDR_PANE_ID", "HERDR_TAB_ID", "HERDR_WORKSPACE_ID", "HERDR_ENV", "HERDR_SESSION", "HERDR_CLIENT_SOCKET_PATH"];
 
 export class Herdr {
   constructor(
@@ -109,12 +125,15 @@ export class Herdr {
 
   private env(): Record<string, string> {
     const env: Record<string, string> = {};
-    for (const [k, v] of Object.entries(process.env)) if (v !== undefined && !INHERITED_HERDR.includes(k)) env[k] = v;
+    for (const [k, v] of Object.entries(process.env)) {
+      if (v !== undefined && !INHERITED_HERDR.includes(k) && !k.startsWith("HERDR_ACTIVE_")) env[k] = v;
+    }
     env.HERDR_SOCKET_PATH = this.target.socketPath;
     return env;
   }
 
-  async call<T>(args: string[], timeoutMs = 15_000): Promise<T> {
+  // `mutating` marks calls with a side effect; see PRE_EFFECT_CODES for how their errors are read.
+  async call<T>(args: string[], timeoutMs = 15_000, mutating = false): Promise<T> {
     const bin = this.target.bin ?? "herdr";
     let r: Awaited<ReturnType<Runner>>;
     try {
@@ -126,7 +145,7 @@ export class Herdr {
     const body = parseEnvelope<T>(r.stdout, r.stderr);
     if (body?.error) {
       const code = String(body.error.code);
-      throw new HerdrError(code, String(body.error.message), AMBIGUOUS_CODES.has(code) ? "unknown" : "rejected");
+      throw new HerdrError(code, String(body.error.message), !mutating || preEffect(code) ? "rejected" : "unknown");
     }
     if (!body || body.result === undefined) {
       throw new HerdrError("bad_response", `herdr gave no usable answer (exit ${r.code}): ${r.stderr.trim().slice(0, 300)}`, "unknown");
@@ -143,14 +162,21 @@ export class Herdr {
     }
   }
 
-  // The inbox-owned workspace (spec §10.2): reuse the configured id while it exists, otherwise
-  // create a fresh one. Never matches by label and never borrows the focused workspace.
-  async ensureWorkspace(o: { workspaceId?: string | null; label: string; cwd: string }): Promise<{ workspace: WorkspaceInfo; created: boolean }> {
+  // The inbox-owned workspace (spec §10.2): reuse the configured id while it exists and still
+  // carries the inbox label, otherwise create a fresh one. A label never selects a workspace;
+  // a different label only proves the id now belongs to someone else's workspace.
+  async ensureWorkspace(o: {
+    workspaceId?: string | null;
+    label: string;
+    cwd: string;
+  }): Promise<{ workspace: WorkspaceInfo; created: boolean; replaced: string | null }> {
+    let replaced: string | null = null;
     if (o.workspaceId) {
       const existing = await this.workspace(o.workspaceId);
-      if (existing) return { workspace: existing, created: false };
+      if (existing && existing.label === o.label) return { workspace: existing, created: false, replaced };
+      if (existing) replaced = o.workspaceId;
     }
-    return { workspace: (await this.createWorkspace(o.label, o.cwd)).workspace, created: true };
+    return { workspace: (await this.createWorkspace(o.label, o.cwd)).workspace, created: true, replaced };
   }
 
   async workspaces(): Promise<WorkspaceInfo[]> {
@@ -158,7 +184,7 @@ export class Herdr {
   }
 
   async createWorkspace(label: string, cwd: string): Promise<{ workspace: WorkspaceInfo; tab: TabInfo; root_pane: PaneInfo }> {
-    return this.call(["workspace", "create", "--label", label, "--cwd", cwd, "--no-focus"]);
+    return this.call(["workspace", "create", "--label", label, "--cwd", cwd, "--no-focus"], undefined, true);
   }
 
   async tabs(workspaceId: string): Promise<TabInfo[]> {
@@ -168,7 +194,7 @@ export class Herdr {
   async createTab(o: { workspaceId: string; cwd: string; label: string; env: Record<string, string> }): Promise<{ tab: TabInfo; root_pane: PaneInfo }> {
     const args = ["tab", "create", "--workspace", o.workspaceId, "--cwd", o.cwd, "--label", o.label, "--no-focus"];
     for (const [k, v] of Object.entries(o.env)) args.push("--env", `${k}=${v}`);
-    return this.call(args);
+    return this.call(args, undefined, true);
   }
 
   async tab(tabId: string): Promise<TabInfo | null> {
@@ -184,14 +210,17 @@ export class Herdr {
     return this.call(
       ["agent", "start", o.name, "--kind", "claude", "--pane", o.paneId, "--timeout", String(o.timeoutMs), "--", ...o.args],
       o.timeoutMs + 10_000,
+      true,
     );
   }
 
+  // Null only when no agent has the name. `agent_name_not_found` (the name no longer owns its
+  // terminal: the occupant changed) is thrown, since it does not prove the session closed.
   async agent(target: string): Promise<AgentInfo | null> {
     try {
       return (await this.call<{ agent: AgentInfo }>(["agent", "get", target])).agent;
     } catch (err) {
-      if (err instanceof HerdrError && /not_found/.test(err.code)) return null;
+      if (err instanceof HerdrError && err.code === "agent_not_found") return null;
       throw err;
     }
   }
@@ -200,12 +229,13 @@ export class Herdr {
     return (await this.call<{ agents: AgentInfo[] }>(["agent", "list"])).agents;
   }
 
-  // Submits without --wait: acceptance is proven by the bridge, not by Herdr's wait (spec §10.1).
+  // Submits without --wait (so `agent_prompt_stalled` cannot occur): acceptance is proven by
+  // the bridge, not by Herdr's wait (spec §10.1).
   async prompt(target: string, text: string): Promise<AgentInfo> {
-    return (await this.call<{ agent: AgentInfo }>(["agent", "prompt", target, text], 20_000)).agent;
+    return (await this.call<{ agent: AgentInfo }>(["agent", "prompt", target, text], 20_000, true)).agent;
   }
 
   async focus(target: string): Promise<void> {
-    await this.call(["agent", "focus", target]);
+    await this.call(["agent", "focus", target], undefined, true);
   }
 }

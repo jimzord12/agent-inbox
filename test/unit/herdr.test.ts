@@ -39,7 +39,16 @@ async function failure(p: Promise<unknown>): Promise<HerdrError> {
 
 describe("server selection and inherited environment", () => {
   const saved: Record<string, string | undefined> = {};
-  const inherited = { HERDR_PANE_ID: "w4:p5", HERDR_TAB_ID: "w4:t4", HERDR_WORKSPACE_ID: "w4", HERDR_ENV: "1", HERDR_SOCKET_PATH: "C:\\other.sock" };
+  const inherited = {
+    HERDR_PANE_ID: "w4:p5",
+    HERDR_TAB_ID: "w4:t4",
+    HERDR_WORKSPACE_ID: "w4",
+    HERDR_ENV: "1",
+    HERDR_SOCKET_PATH: "C:\\other.sock",
+    HERDR_SESSION: "other",
+    HERDR_CLIENT_SOCKET_PATH: "C:\\client.sock",
+    HERDR_ACTIVE_PANE_ID: "w4:p1",
+  };
   beforeEach(() => {
     for (const [k, v] of Object.entries(inherited)) {
       saved[k] = process.env[k];
@@ -61,7 +70,9 @@ describe("server selection and inherited environment", () => {
     expect(calls).toHaveLength(3);
     for (const c of calls) {
       expect(c.env.HERDR_SOCKET_PATH).toBe(SOCKET);
-      for (const k of ["HERDR_PANE_ID", "HERDR_TAB_ID", "HERDR_WORKSPACE_ID", "HERDR_ENV"]) expect(c.env[k]).toBeUndefined();
+      for (const k of ["HERDR_PANE_ID", "HERDR_TAB_ID", "HERDR_WORKSPACE_ID", "HERDR_ENV", "HERDR_SESSION", "HERDR_CLIENT_SOCKET_PATH", "HERDR_ACTIVE_PANE_ID"]) {
+        expect(c.env[k]).toBeUndefined();
+      }
       expect(c.env.PATH ?? c.env.Path).toBeDefined();
     }
   });
@@ -108,7 +119,7 @@ describe("outcomes", () => {
 describe("calls and recorded answers", () => {
   test("ensureWorkspace reuses the configured workspace", async () => {
     const { herdr, calls } = fake(rec.workspaceGet);
-    const r = await herdr.ensureWorkspace({ workspaceId: "w7", label: "Agent Inbox", cwd: "C:\\x" });
+    const r = await herdr.ensureWorkspace({ workspaceId: "w7", label: "inbox-adapter-fixture", cwd: "C:\\x" });
     expect(r).toMatchObject({ created: false, workspace: { workspace_id: "w7" } });
     expect(calls[0]?.argv.slice(1)).toEqual(["workspace", "get", "w7"]);
   });
@@ -203,5 +214,43 @@ describe("the real process runner", () => {
   test("a missing executable is rejected as unavailable", async () => {
     const h = new Herdr({ socketPath: SOCKET, bin: "C:\\nowhere\\herdr-missing.exe" });
     expect(await failure(h.workspaces())).toMatchObject({ code: "herdr_unavailable", outcome: "rejected" });
+  });
+});
+
+describe("review round 1: errors after a side effect", () => {
+  const err = (verb: string, code: string) => JSON.stringify({ id: `cli:${verb}`, error: { code, message: code } });
+
+  test("agent_not_ready after launch is unknown and keeps its code, so the worker can focus the pane", async () => {
+    const { herdr } = fake(err("agent:start", "agent_not_ready"));
+    const e = await failure(herdr.startAgent({ name: "inbox-a1b2c3", paneId: "w7:p2", args: [], timeoutMs: 1000 }));
+    expect(e).toMatchObject({ code: "agent_not_ready", outcome: "unknown" });
+  });
+
+  test("an unlisted error on any mutating call is unknown", async () => {
+    const tab = { workspaceId: "w7", cwd: "C:\\x", label: "x", env: {} };
+    const { herdr } = fake(err("tab:create", "pty_spawn_failed"), err("agent:prompt", "agent_prompt_failed"), err("agent:focus", "x"), err("workspace:create", "y"));
+    expect((await failure(herdr.createTab(tab))).outcome).toBe("unknown");
+    expect((await failure(herdr.prompt("inbox-a1b2c3", "hi"))).outcome).toBe("unknown");
+    expect((await failure(herdr.focus("inbox-a1b2c3"))).outcome).toBe("unknown");
+    expect((await failure(herdr.createWorkspace("Agent Inbox", "C:\\x"))).outcome).toBe("unknown");
+  });
+
+  test("codes Herdr raises before acting are rejected on mutating calls", async () => {
+    const codes = ["agent_blocked", "agent_name_taken", "agent_pane_unavailable", "agent_target_ambiguous", "pane_not_found", "invalid_env", "server_not_running"];
+    const { herdr } = fake(...codes.map((c) => err("agent:prompt", c)));
+    for (const c of codes) expect(await failure(herdr.prompt("inbox-a1b2c3", "hi"))).toMatchObject({ code: c, outcome: "rejected" });
+  });
+
+  test("a name that no longer owns its terminal is not reported as gone", async () => {
+    const { herdr } = fake(err("agent:get", "agent_name_not_found"));
+    expect((await failure(herdr.agent("inbox-a1b2c3"))).code).toBe("agent_name_not_found");
+  });
+
+  test("ensureWorkspace does not reuse an id that now carries another label", async () => {
+    const other = JSON.stringify({ id: "cli:workspace:get", result: { type: "workspace_info", workspace: { workspace_id: "w7", label: "my project" } } });
+    const { herdr, calls } = fake(other, rec.workspaceCreate);
+    const r = await herdr.ensureWorkspace({ workspaceId: "w7", label: "inbox-adapter-fixture", cwd: "C:\\x" });
+    expect(r).toMatchObject({ created: true, replaced: "w7" });
+    expect(calls[1]?.argv.slice(1, 3)).toEqual(["workspace", "create"]);
   });
 });
