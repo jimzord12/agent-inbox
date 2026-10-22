@@ -106,7 +106,7 @@ by hand.
 | 3. Env in the session (work) | `CLAUDE_CONFIG_DIR` = the work folder, as the tab set it; no auth-affecting variable names present. The personal side stays with INB-018. |
 | 4. Trust dialog | Claude in a new folder shows "Accessing workspace … Is this a project you created or one you trust?" with "No, exit" preselected. `agent start` answers `agent_not_ready`; the worker blocks with `AGENT_BLOCKED` and focuses the tab; SessionStart runs only after the dialog is answered, and the worker resumes within about a second. The agent's own keypress to confirm was refused by the harness's safety check, so in this run the owner confirmed it; later live runs should reuse an already trusted fixture folder. |
 | 5. Worker outlives its caller | **Verified.** A Claude session in a test-workspace tab ran `agent-inbox open`; its tab was closed 3 s after the worker claimed the attempt, and the attempt delivered 22 s later. An earlier run with a plain shell as the caller gave the same result. |
-| 6. Session id | **Verified.** Herdr's `agent_session.value` equals the `--session-id` the worker passed, in both attempts. |
+| 6. Session id | **Verified.** Herdr's `agent_session.value` equals the `--session-id` the worker passed, in the first two attempts (recorded `agent get` and `agent focus` answers). For the third, the worker's own identity check before dispatch passed, but no Herdr answer was saved. |
 
 Settle signal: after the opening turn, `completion_seq` and `state_change_seq` were equal and had both
 moved past the pre-dispatch value, with `agent_status` `idle`. The worker's rule (`state_change_seq`
