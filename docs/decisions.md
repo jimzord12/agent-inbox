@@ -70,6 +70,20 @@ actions) inside the Claude terminal, calling the JSON CLI. So:
 - The mod still never injects a handoff into the conversation hosting it (spec §12.2).
 - The passive pending indicator stays out of scope.
 
+**Mod spike result (2026-10-22): the mod is enough; no TUI.** Tested live on Claude
+Code 2.1.308 in both profiles, loaded session-only with `claude --plugin-dir`. All ten
+required capabilities worked (persistent `/inbox` pane, keyboard list with views and
+filters, details, argv CLI calls without freezing, 2 s refresh keeping selection,
+snooze field and profile picker, no chat turns created, detached worker outliving the
+session). Rules that follow from it:
+- The mod strips control/escape characters from all producer text itself; one bad
+  string makes the engine refuse the whole pane.
+- The mod pages long handoff previews itself (engine limit: 100,000 characters per tree).
+- `agent-inbox open` starts its worker detached with stdio `ignore`; an inherited pipe
+  makes the mod's process call hang until timeout.
+- Permanent use needs a one-time install per profile (local folder marketplace). Not
+  done; needs the user's word, since it changes each profile's plugin config.
+
 **Out of scope (level D, not being built):** the passive pending indicator; the evaluation harness with fault
 barriers for E09/E10; the skill A/B experiment (E12); a calibrated LLM judge;
 ×3 repetitions per profile; the optional Mastra adapter.
