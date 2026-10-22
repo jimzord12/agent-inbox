@@ -24,7 +24,8 @@ describe("handoff paging", () => {
       const pages = paginate(text);
       expect(unpaginate(pages)).toBe(text);
       for (const page of pages) {
-        expect(page.length).toBeLessThanOrEqual(PAGE_LINES);
+        // The empty piece after a final break may ride on a full last page.
+        expect(page.filter((p, i) => !(i === PAGE_LINES && p.text === "")).length).toBeLessThanOrEqual(PAGE_LINES);
         expect(page.reduce((n, p) => n + p.text.length, 0)).toBeLessThanOrEqual(PAGE_CHARS);
       }
       // Lines are numbered in order with none skipped.
@@ -33,6 +34,16 @@ describe("handoff paging", () => {
       expect(lines.length).toBe(text.split("\n").length);
     });
   }
+
+  test("a handoff of whole pages ending in a line break has no empty last page", () => {
+    for (const n of [1, 2, 3]) {
+      const text = "x\n".repeat(PAGE_LINES * n);
+      const pages = paginate(text);
+      expect(pages.length).toBe(n);
+      expect(unpaginate(pages)).toBe(text);
+      expect(lineCount(pages)).toBe(PAGE_LINES * n);
+    }
+  });
 
   test("lines are counted as a person counts them", () => {
     expect(lineCount(paginate("a\nb\n"))).toBe(2);
@@ -79,10 +90,28 @@ describe("attempt progress", () => {
     expect(new Set(labels).size).toBe(5);
   });
 
-  test("a focus failure is told by the receipt too, and never offers a resend", () => {
-    const p = progress(attempt({ status: "blocked", phase: "await_receipt", error: { code: "AGENT_UNAVAILABLE", message: "x" }, evidence: { ...attempt().evidence, receipt_candidate: true } }));
-    expect(p.label).toBe("Focus failed");
-    expect(p.hint).toContain("nothing is resent");
+  test("acknowledged then stopped short of focus is not a focus failure; neither offers a resend", () => {
+    // The worker's four blocks after acknowledgment and before focus (src/worker/worker.ts awaitReceipt).
+    for (const [code, message] of [
+      ["AGENT_UNAVAILABLE", "Claude closed after acknowledging; the receipt is kept."],
+      ["AGENT_UNAVAILABLE", "Herdr no longer reports the attempt's session in its pane."],
+      ["RECEIPT_INVALID", "Claude has not settled after acknowledging."],
+      ["RECEIPT_INVALID", "Claude acknowledged, but Herdr does not report its session id."],
+    ] as const) {
+      const p = progress(attempt({ status: "blocked", phase: "await_receipt", error: { code, message }, evidence: { ...attempt().evidence, receipt_candidate: true } }));
+      expect(p.label).toBe("Acknowledged, then stopped");
+      expect(p.hint).toStartWith(message);
+      expect(p.hint).toContain("nothing is resent");
+      expect(p.hint).not.toContain("could not be focused");
+    }
+    const focus = progress(attempt({ status: "blocked", phase: "focus", error: { code: "AGENT_UNAVAILABLE", message: "The session acknowledged, but focusing it failed: gone." }, evidence: { ...attempt().evidence, receipt_candidate: true } }));
+    expect(focus.label).toBe("Focus failed");
+    expect(focus.hint).toContain("nothing is resent");
+  });
+
+  test("sending the handoff comes before waiting for its acknowledgment", () => {
+    expect(progress(attempt({ phase: "submit_context" })).label).toBe("Sending the handoff");
+    expect(progress(attempt({ phase: "await_receipt" })).label).toBe("Waiting for the session to acknowledge the handoff");
   });
 
   test("uncertain reads as retryable, not as a failure", () => {

@@ -325,3 +325,70 @@ test('Back returns to the list, and an item that cannot be read shows its error'
   expect((await ui.find({ key: 'row:itm_1' }))?.text).toContain('Gone soon')
   await ui.unmount()
 })
+
+test('an item with every field at its core limit still draws the whole handoff page', async ($, on) => {
+  mock.clock(on, { now: NOW })
+  const page = Array.from({ length: 40 }, (_, i) => `${String(i).padStart(3, '0')} ${'p'.repeat(145)}`).join('\n')
+  const big = detail('itm_1', page)
+  big.title = 't'.repeat(200)
+  big.revision.payload.summary = 's'.repeat(4096)
+  big.revision.payload.launch.initial_instruction = 'i'.repeat(16 * 1024)
+  big.revision.payload.launch.cwd = `C:\\${'c'.repeat(1020)}`
+  big.revision.payload.context_refs = Array.from({ length: 32 }, (_, i) => ({ uri: `file:///${'u'.repeat(2040)}${i}`, label: 'l'.repeat(200), sha256: 'd'.repeat(64) }))
+  engine(on, () => [item('itm_1', 'Big')], { answer: args => (args[0] === 'get' ? { item: big } : undefined) })
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+  await $.command.run(INBOX)
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  await ui.press({ key: 'row:itm_1' })
+  expect((await ui.find({ key: 'handoff' }))?.text).toBe(page)
+  await ui.unmount()
+})
+
+test('two quick presses turn two pages', async ($, on) => {
+  const clock = mock.clock(on, { now: NOW })
+  const text = Array.from({ length: 200 }, (_, i) => `line ${i + 1}`).join('\n')
+  engine(on, () => [item('itm_1', 'Long')], { answer: args => (args[0] === 'get' ? { item: detail('itm_1', text) } : undefined) })
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+  await $.command.run(INBOX)
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  await ui.press({ key: 'row:itm_1' })
+  void ui.press({ key: 'page:next' })
+  void ui.press({ key: 'page:next' })
+  await clock.settle()
+  expect((await ui.find({ type: 'Text', text: /^Page / }))?.text).toMatch(/^Page 3 of 5/)
+  await ui.unmount()
+})
+
+test('switching items while a details read runs never shows the item left', async ($, on) => {
+  const clock = mock.clock(on, { now: NOW })
+  const cli = engine(on, () => [item('itm_1', 'First'), item('itm_2', 'Second')], {
+    slowMs: 1000,
+    clock,
+    answer: args => (args[0] === 'get' ? { item: { ...detail(args[1]!, `handoff of ${args[1]}`), title: `Title of ${args[1]}` } } : undefined),
+  })
+  // Every details answer the mod stores, by the item it answered.
+  const stored: string[] = []
+  on('state.set', (_, e, next) => {
+    if (e.plugin === 'agent-inbox' && e.key === 'details') stored.push((e.value as { asked: string }).asked)
+    return next(e)
+  })
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+  void $.command.run(INBOX)
+  await clock.advance(1000)
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  // Open the first; before its read answers, go back and open the second.
+  void ui.press({ key: 'row:itm_1' })
+  await clock.settle()
+  void ui.press({ key: 'back' })
+  await clock.settle()
+  await clock.advance(1000)
+  void ui.press({ key: 'row:itm_2' })
+  for (let i = 0; i < 4; i++) await clock.advance(1000)
+  expect(await ui.find({ type: 'Text', text: 'Title of itm_1' })).toBeUndefined()
+  expect((await ui.find({ key: 'handoff' }))?.text).toBe('handoff of itm_2')
+  expect(cli.calls.some(c => c[0] === 'get' && c[1] === 'itm_2')).toBe(true)
+  // The first item's read was answered after the person left it, and dropped.
+  expect(cli.calls.some(c => c[0] === 'get' && c[1] === 'itm_1')).toBe(true)
+  expect(stored).not.toContain('itm_1')
+  await ui.unmount()
+})

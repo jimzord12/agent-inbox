@@ -254,6 +254,18 @@ export function when(iso: string | null): string {
   return iso ? `${iso.slice(0, 16).replace("T", " ")} UTC` : "";
 }
 
+// `s` cut to `n` characters (by code point), an ellipsis marking the cut. Used for fields drawn
+// beside the handoff page, so the page itself always fits the engine's per-tree limit.
+export function clip(s: string, n: number): string {
+  const chars = [...s];
+  return chars.length <= n ? s : `${chars.slice(0, n - 1).join("")}…`;
+}
+
+// What the details view draws of a reference: at most 32 refs at REF_LABEL + REF_URI characters each
+// leave room for the summary (4 KiB), instruction (16 KiB) and a handoff page under 100,000.
+export const REF_LABEL = 80;
+export const REF_URI = 300;
+
 export function size(bytes: number): string {
   return bytes < 1024 ? `${bytes} B` : `${(bytes / 1024).toFixed(1)} KiB`;
 }
@@ -286,8 +298,10 @@ export function paginate(text: string): Piece[][] {
   const pages: Piece[][] = [];
   let page: Piece[] = [];
   let chars = 0;
-  for (const p of pieces) {
-    if (page.length && (page.length >= PAGE_LINES || chars + p.text.length > PAGE_CHARS)) {
+  for (const [i, p] of pieces.entries()) {
+    // The empty piece after a final line break stays on the last page rather than opening one.
+    const isTrailingBreak = i === pieces.length - 1 && i > 0 && p.text === "" && !p.joined;
+    if (page.length && !isTrailingBreak && (page.length >= PAGE_LINES || chars + p.text.length > PAGE_CHARS)) {
       pages.push(page);
       page = [];
       chars = 0;
@@ -339,7 +353,8 @@ export function progress(a: InboxAttempt): Progress {
   const message = a.error?.message ?? "";
   switch (a.status) {
     case "in_progress":
-      if (a.phase === "submit_context" || a.phase === "await_receipt") {
+      if (a.phase === "submit_context") return { label: "Sending the handoff", hint: "The opening prompt is going to the new session.", tone: "progress" };
+      if (a.phase === "await_receipt") {
         return { label: "Waiting for the session to acknowledge the handoff", hint: "The session has the handoff and is reading it.", tone: "progress" };
       }
       if (a.phase === "focus") return { label: "Focusing the session", hint: "The handoff was acknowledged; its tab is being brought forward.", tone: "progress" };
@@ -348,8 +363,13 @@ export function progress(a: InboxAttempt): Progress {
       if (code === "AGENT_BLOCKED") {
         return { label: "Waiting on you", hint: "The session's tab shows a dialog (trust, login or a question). Focus it and answer it there.", tone: "attention" };
       }
-      if (a.phase === "focus" || a.evidence.receipt_candidate) {
+      // Only a focus that was tried failed (the worker's focus phase). Acknowledged and then stopped
+      // short of focus (Claude closed, never settled, its session moved) is told as such.
+      if (a.phase === "focus") {
         return { label: "Focus failed", hint: `The session acknowledged the handoff, but its tab could not be focused. Retry only focuses it again; nothing is resent. ${message}`.trim(), tone: "attention" };
+      }
+      if (a.evidence.receipt_candidate) {
+        return { label: "Acknowledged, then stopped", hint: `${message} The acknowledgment is kept and nothing is resent; focus the session to look at it.`.trim(), tone: "attention" };
       }
       return { label: `Blocked: ${code ?? "unknown"}`, hint: message, tone: "attention" };
     case "uncertain":

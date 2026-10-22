@@ -4,7 +4,7 @@ title: Wire every inbox action into the mod
 status: To Do
 assignee: []
 created_date: '2026-10-22 07:06'
-updated_date: '2026-10-22 13:41'
+updated_date: '2026-10-22 14:05'
 labels:
   - 'type:feature'
   - mod
@@ -46,4 +46,6 @@ AC #4 (live smoke): the agent drives the /inbox pane itself, in a Claude session
 From the M3 milestone review N5: re-check that the worker outlives its caller when the caller is the mod (the CLI case is proved).
 
 From INB-012 round 1 N1/N2: seed the profile/producer filter values beyond rows already seen (status or profiles.json), and show snoozed_until in local time in the Snoozed view.
+
+From INB-013 round 1 N3/N4: show times in local time once snooze brings a local time zone; draw the attempt's next_actions as the safe next action buttons in details.
 <!-- SECTION:NOTES:END -->

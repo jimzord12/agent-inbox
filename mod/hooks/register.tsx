@@ -1,7 +1,8 @@
+import { update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
 import type { InboxAttempt, InboxDetails, InboxError, InboxFilters, InboxList, InboxView } from '../types'
-import { type RawDetail, attemptLine, availabilityText, inertDeep, lineCount, oneLine, paginate, progress, rowLine, size, toAttempt, toDetail, toRow, when } from './text'
+import { REF_LABEL, REF_URI, type RawDetail, attemptLine, availabilityText, clip, inertDeep, lineCount, oneLine, paginate, progress, rowLine, size, toAttempt, toDetail, toRow, when } from './text'
 
 // The /inbox pane (spec §12.2). Everything it knows comes from the agent-inbox JSON CLI, called by
 // argv; it keeps no database, makes no state transition and launches nothing of its own.
@@ -235,7 +236,14 @@ export const register: Register = on => {
       const pages = item?.handoff_text != null ? paginate(item.handoff_text) : []
       const page = Math.min(Math.max(0, pageAt), Math.max(0, pages.length - 1))
       const shown = pages[page] ?? []
-      const turn = (to: number) => () => void $.state.set(HANDOFF_PAGE, Math.min(Math.max(0, to), Math.max(0, pages.length - 1)))
+      // A press changes the page as it stands now, compare-and-set, not as drawn: two presses
+      // before a redraw turn two pages.
+      const turn = (by: number) => async () => {
+        await update($, HANDOFF_PAGE, at => Math.min(Math.max(0, (at ?? 0) + by), Math.max(0, pages.length - 1)))
+        // A new page starts at its top, not where the last one was scrolled to. Best effort: a
+        // refused scroll leaves the pane where it was.
+        await $.ui.scroll({ to: { key: 'page' }, in: PANE, block: 'start' }).catch(() => undefined)
+      }
       const attempt = isCurrent ? details.attempt : null
       const p = attempt ? progress(attempt) : null
 
@@ -243,8 +251,8 @@ export const register: Register = on => {
         <Box flexDirection="column">
           <Box flexDirection="row" gap={1} flexWrap="wrap">
             <Button key="back" label="Back" hotkey="b" onPress={back} />
-            {pages.length > 1 && <Button key="page:prev" label="Prev page" hotkey="k" onPress={turn(page - 1)} />}
-            {pages.length > 1 && <Button key="page:next" label="Next page" hotkey="j" onPress={turn(page + 1)} />}
+            {pages.length > 1 && <Button key="page:prev" label="Prev page" hotkey="k" onPress={turn(-1)} />}
+            {pages.length > 1 && <Button key="page:next" label="Next page" hotkey="j" onPress={turn(1)} />}
           </Box>
           {isCurrent && details.error && (
             <Text color="error">
@@ -265,8 +273,8 @@ export const register: Register = on => {
               {item.launch && <Text>Instruction: {item.launch.initial_instruction}</Text>}
               {item.context_refs.map((r, i) => (
                 <Text key={`ref:${i}`}>
-                  Reference: {r.label ? `${oneLine(r.label)} — ` : ''}
-                  {oneLine(r.uri)}
+                  Reference: {r.label ? `${clip(oneLine(r.label), REF_LABEL)} — ` : ''}
+                  {clip(oneLine(r.uri), REF_URI)}
                   {r.sha256 ? ` (sha256 ${r.sha256.slice(0, 12)}…)` : ''}
                 </Text>
               ))}
@@ -296,9 +304,11 @@ export const register: Register = on => {
                 <Text dimColor>No handoff document.</Text>
               )}
               {pages.length > 0 && (
-                <Text dimColor>
-                  Page {page + 1} of {pages.length} · lines {Math.min(shown[0]?.line ?? 0, lineCount(pages))}–{Math.min(shown.at(-1)?.line ?? 0, lineCount(pages))} of {lineCount(pages)}
-                </Text>
+                <Box key="page">
+                  <Text dimColor>
+                    Page {page + 1} of {pages.length} · lines {Math.min(shown[0]?.line ?? 0, lineCount(pages))}–{Math.min(shown.at(-1)?.line ?? 0, lineCount(pages))} of {lineCount(pages)}
+                  </Text>
+                </Box>
               )}
               {shown.length > 0 && (
                 <Box key="handoff">
