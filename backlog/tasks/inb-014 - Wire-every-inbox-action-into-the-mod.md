@@ -4,10 +4,11 @@ title: Wire every inbox action into the mod
 status: To Do
 assignee: []
 created_date: '2026-10-22 07:06'
-updated_date: '2026-10-22 07:14'
+updated_date: '2026-10-22 07:20'
 labels:
   - 'type:feature'
   - mod
+  - live
 milestone: m-3
 dependencies:
   - INB-013
@@ -32,7 +33,13 @@ Open session, Open with profile, Open fresh session (only as its own action), Ac
 
 ## Definition of Done
 <!-- DOD:BEGIN -->
-- [ ] #1 Gates green: bun run typecheck and bun test pass on the committed revision
-- [ ] #2 Review loop PASS (docs/practices/review.md), report stored under docs/reviews/
-- [ ] #3 Evidence named in the final summary, with what remains unverified
+- [ ] #1 Review loop PASS (docs/practices/review.md), report stored under docs/reviews/
+- [ ] #2 Evidence named in the final summary, with what remains unverified
+- [ ] #3 Gates green: bun run typecheck and bun run test pass on the committed revision
 <!-- DOD:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+AC #4 (live smoke): the agent drives the /inbox pane itself, in a Claude session it starts in its own Herdr evaluation workspace, using herdr pane send-keys and pane read. If the pane cannot be driven that way, the task goes Blocked with a short click-through checklist for the owner instead of improvising.
+<!-- SECTION:NOTES:END -->

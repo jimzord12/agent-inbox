@@ -4,6 +4,7 @@ title: Build the live evaluation harness
 status: To Do
 assignee: []
 created_date: '2026-10-22 07:06'
+updated_date: '2026-10-22 07:19'
 labels:
   - 'type:feature'
   - eval
@@ -29,7 +30,7 @@ docs/generic-agent-inbox-evaluation-plan.md §4 and §7: an isolated inbox home,
 
 ## Definition of Done
 <!-- DOD:BEGIN -->
-- [ ] #1 Gates green: bun run typecheck and bun test pass on the committed revision
-- [ ] #2 Review loop PASS (docs/practices/review.md), report stored under docs/reviews/
-- [ ] #3 Evidence named in the final summary, with what remains unverified
+- [ ] #1 Review loop PASS (docs/practices/review.md), report stored under docs/reviews/
+- [ ] #2 Evidence named in the final summary, with what remains unverified
+- [ ] #3 Gates green: bun run typecheck and bun run test pass on the committed revision
 <!-- DOD:END -->

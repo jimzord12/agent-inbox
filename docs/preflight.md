@@ -19,10 +19,10 @@ src/worker/    detached per-attempt handoff worker
 src/herdr/     Herdr adapter (spawns the `herdr` CLI, parses JSON)
 src/bridge/    Claude receipt-bridge hook commands + per-session settings file
 skill/         companion skill producers install
-test/          `bun test` unit, concurrency and fault tests; test/e2e for live runs
+test/          unit, concurrency and fault tests in test/unit (`bun run test`); test/e2e for live runs
 ```
 
-- Test runner: `bun test` (built in, no extra dependency).
+- Test runner: Bun's built-in runner; the gate is `bun run test` (test/unit only).
 - No standalone TUI (user decision, see decisions.md). The view is a Claude Code mod.
 
 ## 2. Native Windows
@@ -86,9 +86,9 @@ Each is checked in a disposable fixture dir in the `Agent Inbox` workspace, neve
 
 1. `--settings` hooks **add to** the profile's hooks instead of replacing them (docs say additive; prod-guard and herdr hook must still fire).
 2. Hook input fields on 2.1.308: `session_id`, `cwd` (SessionStart), `prompt` (UserPromptSubmit), `last_assistant_message` (Stop), and that a `UserPromptSubmit` block really stops the prompt.
-3. What env the pane shell actually has (Herdr server env), per profile.
-4. Workspace trust dialog in a new fixture dir: expected to put the attempt in `blocked` on first run; the user accepts it once per fixture.
-5. Detached worker survives the mod's Claude session and its tab closing (seen in the spike; re-check with the real worker).
+3. What env the pane shell actually has (Herdr server env), per profile: work side by INB-007, personal side by INB-018 (E04).
+4. Workspace trust dialog in a new fixture dir: expected to put the attempt in `blocked` on first run; for a throwaway fixture folder the agent accepts it itself (AGENTS.md); any login or account prompt stops the run.
+5. Detached worker survives its caller closing: INB-007 runs `agent-inbox open` from a Claude session in a test-workspace tab and closes that tab (the spike saw the same with a mod; no mod needed here).
 6. `agent_session.value` equals the `--session-id` we passed.
 
 ## 8. Unresolved user decisions
@@ -97,8 +97,8 @@ None. GitHub is decided (public, remote set up). The executable name stays `agen
 
 ## 9. End-to-end validation plan
 
-1. Phase 1 core with `bun test`: lifecycle, idempotency, revision checks, one-blocking-attempt under concurrent processes, events cursor, leases/fencing, fault injection at every attempt phase.
+1. Phase 1 core with `bun run test`: lifecycle, idempotency, revision checks, one-blocking-attempt under concurrent processes, events cursor, leases/fencing, fault injection at every attempt phase.
 2. First live launch (work profile, fixture dir with a space and Unicode in the path) to close the §7 list; adapt before going further.
-3. Manual smoke E01 (personal), E04 (work, with decoy), E05 (tempting instructions).
+3. Smoke E01, E04, E05 (INB-018): agents on the work profile; E04 also delivers one personal-profile item to prove the personal route.
 4. Scripted single runs of E01–E11 with an evaluation-only `AGENT_INBOX_HOME`.
 5. Fresh-reviewer pass before calling level C done.

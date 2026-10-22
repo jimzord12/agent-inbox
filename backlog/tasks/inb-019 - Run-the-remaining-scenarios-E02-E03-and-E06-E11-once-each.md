@@ -4,6 +4,7 @@ title: 'Run the remaining scenarios E02, E03 and E06-E11 once each'
 status: To Do
 assignee: []
 created_date: '2026-10-22 07:06'
+updated_date: '2026-10-22 07:20'
 labels:
   - 'type:test'
   - eval
@@ -11,6 +12,7 @@ labels:
 milestone: m-5
 dependencies:
   - INB-018
+  - INB-011
 priority: medium
 ordinal: 19000
 ---
@@ -29,7 +31,7 @@ Evaluation plan §6 and §9. E12 (skill A/B) and repetitions are out of scope (l
 
 ## Definition of Done
 <!-- DOD:BEGIN -->
-- [ ] #1 Gates green: bun run typecheck and bun test pass on the committed revision
-- [ ] #2 Review loop PASS (docs/practices/review.md), report stored under docs/reviews/
-- [ ] #3 Evidence named in the final summary, with what remains unverified
+- [ ] #1 Review loop PASS (docs/practices/review.md), report stored under docs/reviews/
+- [ ] #2 Evidence named in the final summary, with what remains unverified
+- [ ] #3 Gates green: bun run typecheck and bun run test pass on the committed revision
 <!-- DOD:END -->

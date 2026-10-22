@@ -4,7 +4,7 @@ title: Show the inbox list in a Claude Code mod
 status: To Do
 assignee: []
 created_date: '2026-10-22 07:06'
-updated_date: '2026-10-22 07:14'
+updated_date: '2026-10-22 07:19'
 labels:
   - 'type:feature'
   - mod
@@ -34,7 +34,7 @@ The user's inbox view is a Claude Code mod (/inbox), proven sufficient by the 20
 
 ## Definition of Done
 <!-- DOD:BEGIN -->
-- [ ] #1 Gates green: bun run typecheck and bun test pass on the committed revision
-- [ ] #2 Review loop PASS (docs/practices/review.md), report stored under docs/reviews/
-- [ ] #3 Evidence named in the final summary, with what remains unverified
+- [ ] #1 Review loop PASS (docs/practices/review.md), report stored under docs/reviews/
+- [ ] #2 Evidence named in the final summary, with what remains unverified
+- [ ] #3 Gates green: bun run typecheck and bun run test pass on the committed revision
 <!-- DOD:END -->

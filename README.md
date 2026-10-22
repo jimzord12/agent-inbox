@@ -26,7 +26,7 @@ src/herdr/    Herdr adapter
 src/bridge/   Claude receipt-bridge hooks
 mod/          the /inbox Claude Code mod (the owner's inbox view)
 skill/        companion skill for producer projects
-test/         bun test (unit, concurrency, faults); test/e2e for live runs
+test/         unit, concurrency and fault tests in test/unit (bun run test); test/e2e for live runs
 ```
 
 ## Development
@@ -35,7 +35,7 @@ Requires [Bun](https://bun.sh) 1.4.3 or newer.
 
 ```sh
 bun install
-bun test
+bun run test          # unit tests only (test/unit); live runs have their own command
 bun run typecheck
 ```
 

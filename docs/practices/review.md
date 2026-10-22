@@ -47,6 +47,11 @@ Cover all eight; mark one "n/a" with a reason. Go deep on the two lead lenses.
 
 Practical, not theatrical: strict about what the owner or a producer would hit, relaxed about taste.
 
+**Privacy in reports.** Reports are committed to this public repository. A privacy check says only
+"none found" or names the file and line of a leak; it never lists the private terms it searched for.
+The author redacts any such term before committing a report and notes the redaction in the
+dispositions — privacy overrides "verbatim".
+
 ## Findings and verdicts
 
 | Severity | Meaning |

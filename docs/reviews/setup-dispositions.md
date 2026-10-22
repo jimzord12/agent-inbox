@@ -23,3 +23,16 @@ The setup is not a board task, so its dispositions live here (reports stay verba
 | S1-15 | Kept, reported to the owner: the Windows path matches the public GitHub handle; night-shift is the owner's own public repo; hook names reveal nothing sensitive. No work or client names present. |
 | S1-16 | Not applied: INB-003/004/005 build on the attempt APIs that INB-002's review may still change, so they keep waiting for it. |
 | S1-17 | Fixed: the workspace-instead-of-endpoint deviation is recorded in decisions.md. |
+
+## Round 2 (`setup-r2.md`, snapshot 81386ff)
+
+| id | disposition |
+|---|---|
+| S2-01 | Fixed in the working tree: the search-term list is redacted from `setup-r1.md` line 28 (marked in place), and `review.md` now forbids listing searched private terms. The terms remain in public history (commit 08aa4b7); rewriting it needs a force push, which is outside the standing permission, so the owner is asked. |
+| S2-02 | Fixed: the m-5 exit condition no longer requires the final loop; INB-027 owns it. |
+| S2-03 | Fixed: DoD #1 of all 27 tasks reads `bun run test`; README and preflight use `bun run test`. |
+| S2-04 | Fixed: AGENTS.md uses zero-padded `INB-<nnn>` and names the INB-020 install exception; preflight §7.4 matches AGENTS.md on the trust dialog; preflight §9.3 matches INB-018. |
+| S2-05 | Fixed: m-1 exit, preflight §7.3/§7.5, INB-007 gains the caller-closing AC, INB-018 gains the personal pane-env AC. |
+| S2-06 | Fixed: `live` label on INB-014 and INB-020; INB-014 notes say how the agent drives the pane or goes Blocked with a checklist. |
+| S2-07 | Fixed: INB-019 depends on INB-011. |
+| S2-08 | Fixed: two ACs added to INB-001. |

@@ -38,7 +38,7 @@ backlog task list --plain              # the work (Backlog.md 1.52.0)
 
 - **Closed review loops**: every task, every milestone, and the whole project once at the end
   (`docs/practices/review.md`). Cap 5 rounds attended, 10 unattended.
-- **Commits and pushes**: commit subjects `<Scope>: <Description> (INB-<n>)`. Push to `main` of
+- **Commits and pushes**: commit subjects `<Scope>: <Description> (INB-<nnn>)`, zero-padded. Push to `main` of
   `github.com/jimzord12/agent-inbox` after each passed task (owner's standing permission, this repo
   only, 2026-10-22). No other repository is pushed to.
 - **The repository is public**: before every push, search the diff for names of the owner's work
@@ -49,7 +49,7 @@ backlog task list --plain              # the work (Backlog.md 1.52.0)
   Herdr workspace and a throwaway fixture folder; never prompt, attach to or close the owner's own
   workspaces or sessions. Accept a folder-trust dialog only for a throwaway fixture folder; any login
   or account prompt stops the run.
-- **Never** edit the owner's Claude `settings*.json`, hooks, plugin installs or PowerShell profile.
+- **Never** edit the owner's Claude `settings*.json`, hooks, plugin installs or PowerShell profile. One exception: INB-020 installs the `/inbox` mod in both profiles, approved by the owner (decisions.md).
   The receipt bridge loads per session through `--settings`.
 - **Never** fall back to bare `claude` or the other profile when a launch fails
   (`PROFILE_LAUNCH_UNSUPPORTED`).

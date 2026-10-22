@@ -4,6 +4,7 @@ title: 'Build the SQLite store, item lifecycle and JSON CLI'
 status: To Do
 assignee: []
 created_date: '2026-10-22 07:05'
+updated_date: '2026-10-22 07:20'
 labels:
   - 'type:feature'
   - core
@@ -29,11 +30,13 @@ Phase 1 of the spec (docs/generic-agent-inbox-spec.md §5-§8, §16). Producers 
 - [ ] #5 events are ordered, replayable and an empty poll returns the latest safe cursor
 - [ ] #6 the CLI prints one JSON envelope; exit 0 success, 1 domain error, 2 bad input
 - [ ] #7 concurrent submits/updates/state changes from separate processes keep exactly one winner (tested)
+- [ ] #8 deleting the producer's original handoff file leaves the retained handoff readable through get --include-context
+- [ ] #9 no producer-facing command can archive an item, declare delivery or change read or snooze state
 <!-- AC:END -->
 
 ## Definition of Done
 <!-- DOD:BEGIN -->
-- [ ] #1 Gates green: bun run typecheck and bun test pass on the committed revision
-- [ ] #2 Review loop PASS (docs/practices/review.md), report stored under docs/reviews/
-- [ ] #3 Evidence named in the final summary, with what remains unverified
+- [ ] #1 Review loop PASS (docs/practices/review.md), report stored under docs/reviews/
+- [ ] #2 Evidence named in the final summary, with what remains unverified
+- [ ] #3 Gates green: bun run typecheck and bun run test pass on the committed revision
 <!-- DOD:END -->
