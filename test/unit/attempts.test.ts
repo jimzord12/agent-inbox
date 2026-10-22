@@ -57,7 +57,7 @@ function deliverableAttempt() {
   expect(at.bind(row.id, row.capability, binding(row))).toEqual({ ok: true });
   expect(at.beginOp(row.id, gen, "dispatch_prompt")).toBeNull();
   const prompt = buildOpeningPrompt(row.id, "C:\\inbox\\packets\\p.md", row.packet_sha256);
-  expect(at.acceptPrompt(row.id, row.capability, row.session_uuid, prompt)).toEqual({ ok: true });
+  expect(at.acceptPrompt(row.id, row.capability, row.session_uuid, f.dir, prompt)).toEqual({ ok: true, protocol: true });
   at.finishOp(row.id, gen, "dispatch_prompt", "confirmed");
   expect(at.captureReceipt(row.id, row.capability, row.session_uuid, marker(row))).toEqual({ ok: true });
   return { item, attempt, gen, row: at.row(attempt.id), prompt };
@@ -208,14 +208,14 @@ describe("bridge validation", () => {
     at.setPacketPath(attempt.id, g, "C:\\p.md");
     const row = at.row(attempt.id);
     const prompt = buildOpeningPrompt(row.id, "C:\\p.md", row.packet_sha256);
-    expect(at.acceptPrompt(row.id, row.capability, row.session_uuid, prompt).ok).toBe(false); // not bound
+    expect(at.acceptPrompt(row.id, row.capability, row.session_uuid, f.dir, prompt).ok).toBe(false); // not bound
     at.bind(row.id, row.capability, binding(row));
-    expect(at.acceptPrompt(row.id, row.capability, row.session_uuid, prompt).ok).toBe(false); // no dispatch intent
+    expect(at.acceptPrompt(row.id, row.capability, row.session_uuid, f.dir, prompt).ok).toBe(false); // no dispatch intent
     at.beginOp(row.id, g, "dispatch_prompt");
-    expect(at.acceptPrompt(row.id, row.capability, row.session_uuid, "something else").ok).toBe(false);
-    expect(at.acceptPrompt(row.id, row.capability, "other-session", prompt).ok).toBe(false);
-    expect(at.acceptPrompt(row.id, row.capability, row.session_uuid, prompt)).toEqual({ ok: true });
-    expect(at.acceptPrompt(row.id, row.capability, row.session_uuid, prompt).ok).toBe(false); // duplicate
+    expect(at.acceptPrompt(row.id, row.capability, row.session_uuid, f.dir, "something else").ok).toBe(false);
+    expect(at.acceptPrompt(row.id, row.capability, "other-session", f.dir, prompt).ok).toBe(false);
+    expect(at.acceptPrompt(row.id, row.capability, row.session_uuid, f.dir, prompt)).toEqual({ ok: true, protocol: true });
+    expect(at.acceptPrompt(row.id, row.capability, row.session_uuid, f.dir, prompt).ok).toBe(false); // duplicate
   });
 
   test.each([
@@ -232,7 +232,7 @@ describe("bridge validation", () => {
       const r = at.row(attempt.id);
       at.bind(r.id, r.capability, binding(r));
       at.beginOp(r.id, g, "dispatch_prompt");
-      at.acceptPrompt(r.id, r.capability, r.session_uuid, buildOpeningPrompt(r.id, "C:\\p.md", r.packet_sha256));
+      at.acceptPrompt(r.id, r.capability, r.session_uuid, f.dir, buildOpeningPrompt(r.id, "C:\\p.md", r.packet_sha256));
       return { row: at.row(attempt.id) };
     })();
     expect(at.captureReceipt(row.id, row.capability, row.session_uuid, marker(row, o))).toEqual({ ok: false, reason });
@@ -297,5 +297,104 @@ describe("delivery", () => {
     const fresh = at.open(item.id, restored.content_revision, { fresh: true });
     expect(fresh.attempt).toMatchObject({ fresh: true, status: "in_progress" });
     expect(at.get(attempt.id).status).toBe("succeeded");
+  });
+});
+
+describe("review round 1 guards", () => {
+  test("a failed dispatch the bridge accepted anyway can never be sent again", () => {
+    const { attempt } = openItem();
+    const g = at.claim(attempt.id, "w1", 60_000)!;
+    at.setPacketPath(attempt.id, g, "C:\p.md");
+    const row = at.row(attempt.id);
+    at.bind(row.id, row.capability, binding(row));
+    const prompt = buildOpeningPrompt(row.id, "C:\p.md", row.packet_sha256);
+    at.beginOp(row.id, g, "dispatch_prompt");
+    expect(at.acceptPrompt(row.id, row.capability, row.session_uuid, f.dir, prompt).ok).toBe(true);
+    at.finishOp(row.id, g, "dispatch_prompt", "failed"); // Herdr answered an error after the prompt landed
+    expect(at.get(row.id).evidence.prompt_state).toBe("accepted");
+    expectCode(() => at.clearFailedOp(row.id, g, "dispatch_prompt"), "STATE_CONFLICT");
+    expect(at.beginOp(row.id, g, "dispatch_prompt")).toBe("failed"); // op kept, nothing restarted
+    expect(at.acceptPrompt(row.id, row.capability, row.session_uuid, f.dir, prompt)).toMatchObject({ ok: false, code: "ALREADY_ACCEPTED" });
+  });
+
+  test("a definitive rejection allows exactly one more dispatch", () => {
+    const { attempt } = openItem();
+    const g = at.claim(attempt.id, "w1", 60_000)!;
+    at.setPacketPath(attempt.id, g, "C:\p.md");
+    at.beginOp(attempt.id, g, "dispatch_prompt");
+    at.finishOp(attempt.id, g, "dispatch_prompt", "failed");
+    expect(at.get(attempt.id).evidence.prompt_state).toBe("rejected");
+    at.clearFailedOp(attempt.id, g, "dispatch_prompt");
+    expect(at.beginOp(attempt.id, g, "dispatch_prompt")).toBeNull();
+    expect(at.get(attempt.id).evidence.prompt_state).toBe("started");
+  });
+
+  test("no delivery after the bridge saw the session replaced, even after resume", () => {
+    const { attempt, gen, row } = deliverableAttempt();
+    const r = at.bind(row.id, row.capability, binding(row, { session_id: "replaced-by-clear" }));
+    expect(r).toMatchObject({ ok: false, code: "RECEIPT_INVALID" });
+    expectCode(() => at.commitDelivery(attempt.id, gen, {}), "STATE_CONFLICT");
+    expect(at.get(attempt.id)).toMatchObject({ status: "blocked", evidence: { receipt_candidate: false, last_rejection: { stage: "bind" } } });
+    at.resume(attempt.id, gen);
+    expectCode(() => at.commitDelivery(attempt.id, gen, {}), "RECEIPT_INVALID"); // the old receipt is gone
+    expect(f.inbox.get(row.item_id).placement).toBe("active");
+  });
+
+  test("uncertain attempts cannot commit either", () => {
+    const { attempt, gen } = deliverableAttempt();
+    at.markUncertain(attempt.id, gen, "DELIVERY_UNCERTAIN", "Focus result lost.");
+    expectCode(() => at.commitDelivery(attempt.id, gen, {}), "STATE_CONFLICT");
+  });
+
+  test("fail is refused while an external step is unresolved; abandon still works", () => {
+    const { item, attempt } = openItem();
+    const g = at.claim(attempt.id, "w1", 60_000)!;
+    at.beginOp(attempt.id, g, "dispatch_prompt");
+    at.finishOp(attempt.id, g, "dispatch_prompt", "uncertain");
+    expectCode(() => at.fail(attempt.id, g, "X", "x"), "STATE_CONFLICT");
+    expect(f.inbox.get(item.id).blocking_attempt_id).toBe(attempt.id);
+    at.beginOp(attempt.id, g, "create_tab"); // started, never finished
+    expect(at.abandon(attempt.id).status).toBe("failed");
+  });
+
+  test("prompt results say whether the prompt was a protocol prompt, with a stable code", () => {
+    const { row, prompt } = deliverableAttempt();
+    expect(at.acceptPrompt(row.id, row.capability, row.session_uuid, f.dir, "fix the login bug")).toMatchObject({ ok: false, protocol: false, code: "NOT_PROTOCOL" });
+    expect(at.acceptPrompt(row.id, row.capability, row.session_uuid, f.dir, `${prompt} extra`)).toMatchObject({ ok: false, protocol: true, code: "PROMPT_MISMATCH" });
+    expect(at.acceptPrompt(row.id, row.capability, row.session_uuid, "C:\elsewhere", prompt)).toMatchObject({ ok: false, protocol: true, code: "WRONG_CWD" });
+    expect(at.get(row.id).evidence.last_rejection).toMatchObject({ stage: "prompt", reason: "working directory does not match" });
+  });
+
+  test("after delivery or abandon, later prompts get an answer instead of an error", () => {
+    const { attempt, gen, row, prompt } = deliverableAttempt();
+    at.commitDelivery(attempt.id, gen, {});
+    expect(at.acceptPrompt(row.id, row.capability, row.session_uuid, f.dir, "next question")).toMatchObject({ ok: false, protocol: false, code: "ATTEMPT_CLOSED" });
+    expect(at.acceptPrompt(row.id, row.capability, row.session_uuid, f.dir, prompt)).toMatchObject({ ok: false, protocol: true, code: "ATTEMPT_CLOSED" });
+    expectCode(() => at.acceptPrompt(row.id, "bad-capability", row.session_uuid, f.dir, prompt), "RECEIPT_INVALID");
+  });
+
+  test("a malformed or mismatched ready marker leaves a diagnostic; an ordinary reply does not", () => {
+    const { attempt } = openItem();
+    const g = at.claim(attempt.id, "w1", 60_000)!;
+    at.setPacketPath(attempt.id, g, "C:\p.md");
+    const r = at.row(attempt.id);
+    at.bind(r.id, r.capability, binding(r));
+    at.beginOp(r.id, g, "dispatch_prompt");
+    at.acceptPrompt(r.id, r.capability, r.session_uuid, f.dir, buildOpeningPrompt(r.id, "C:\p.md", r.packet_sha256));
+    at.captureReceipt(r.id, r.capability, r.session_uuid, "Still reading.");
+    expect(at.get(r.id).evidence.last_rejection).toBeNull();
+    at.captureReceipt(r.id, r.capability, r.session_uuid, marker(r, { challenge: "guess" }));
+    expect(at.get(r.id).evidence.last_rejection).toMatchObject({ stage: "receipt", reason: "wrong challenge" });
+    const view = JSON.stringify(at.get(r.id));
+    expect(view).not.toContain("Orientation: seven");
+  });
+
+  test("the packet path is fixed once dispatch began", () => {
+    const { attempt } = openItem();
+    const g = at.claim(attempt.id, "w1", 60_000)!;
+    at.setPacketPath(attempt.id, g, "C:\p.md");
+    at.beginOp(attempt.id, g, "dispatch_prompt");
+    at.setPacketPath(attempt.id, g, "C:\p.md"); // same path is a no-op
+    expectCode(() => at.setPacketPath(attempt.id, g, "C:\q.md"), "STATE_CONFLICT");
   });
 });

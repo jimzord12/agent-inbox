@@ -114,4 +114,8 @@ export const MIGRATIONS: string[] = [
     PRIMARY KEY (attempt_id, op)
   );
   `,
+  // 3: last rejected bridge evidence (reason and time only), shown without log inspection.
+  `
+  ALTER TABLE attempts ADD COLUMN last_rejection_json TEXT;
+  `,
 ];

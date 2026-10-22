@@ -77,9 +77,12 @@ HANDOFF>>>
 }
 
 // The short prompt submitted through Herdr: packet path, hash and attempt only (spec §9.2 step 5).
+// Every opening prompt starts with this prefix followed by the attempt id and "]".
+export const OPENING_PREFIX = "[agent-inbox ";
+
 export function buildOpeningPrompt(attemptId: string, packetPath: string, packetSha256: string): string {
   return (
-    `[agent-inbox ${attemptId}] Read the handoff packet at ${packetPath} (packet_sha256 ${packetSha256}) completely, ` +
+    `${OPENING_PREFIX}${attemptId}] Read the handoff packet at ${packetPath} (packet_sha256 ${packetSha256}) completely, ` +
     `then follow its opening-turn instructions: give a brief orientation, end with the ${READY_MARKER} line it describes, and wait for me.`
   );
 }

@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { newId, randomToken, toStored } from "./clock";
 import { InboxError } from "./errors";
 import type { Inbox, ItemRow } from "./inbox";
-import { READY_MARKER, buildOpeningPrompt, buildPacket } from "./packet";
+import { OPENING_PREFIX, READY_MARKER, buildOpeningPrompt, buildPacket } from "./packet";
 import { type Profile, launchFingerprint, loadProfiles, normalizeDir } from "./profiles";
 import { type Submission, sha256Hex } from "./submission";
 
@@ -53,6 +53,7 @@ export interface AttemptRow {
   receipt_candidate_json: string | null;
   receipt_json: string | null;
   focus_json: string | null;
+  last_rejection_json: string | null;
 }
 
 interface OpRow {
@@ -91,10 +92,24 @@ export interface AttemptView {
     receipt_candidate: boolean;
     delivered: boolean;
     focused: boolean;
+    // Last bridge evidence that was refused, e.g. a malformed ready marker.
+    last_rejection: { stage: string; reason: string; at: string } | null;
   };
   ops: { op: OpName; state: OpState; started_at: string; finished_at: string | null }[];
   next_actions: string[];
 }
+
+export type PromptRefusal =
+  | "NOT_PROTOCOL"
+  | "ATTEMPT_CLOSED"
+  | "NOT_BOUND"
+  | "WRONG_SESSION"
+  | "WRONG_CWD"
+  | "PROMPT_MISMATCH"
+  | "ALREADY_ACCEPTED"
+  | "NO_DISPATCH";
+
+export type PromptResult = { ok: true; protocol: true } | { ok: false; protocol: boolean; code: PromptRefusal; reason: string };
 
 export interface Layout {
   herdr_session: string;
@@ -181,7 +196,7 @@ export class Attempts {
           profileId,
           cwd: payload.launch!.cwd,
           instruction: payload.launch!.initial_instruction,
-          handoffText: new TextDecoder().decode(rev.handoff_bytes!),
+          handoffText: new TextDecoder("utf-8", { ignoreBOM: true }).decode(rev.handoff_bytes!),
           handoffSha256: rev.handoff_sha256!,
           capturedAt: rev.received_at,
           refs: payload.context_refs,
@@ -293,8 +308,13 @@ export class Attempts {
     this.fencedWrite(attemptId, gen, (a) => this.patch(a.id, { phase }));
   }
 
+  // The opening prompt names this path, so it is fixed once dispatch has begun.
   setPacketPath(attemptId: string, gen: number, path: string) {
-    this.fencedWrite(attemptId, gen, (a) => this.patch(a.id, { packet_path: path }));
+    this.fencedWrite(attemptId, gen, (a) => {
+      if (a.packet_path === path) return;
+      if (a.prompt_state !== "none") throw new InboxError("STATE_CONFLICT", "The packet path cannot change after dispatch began.");
+      this.patch(a.id, { packet_path: path });
+    });
   }
 
   recordLayout(attemptId: string, gen: number, layout: Partial<Layout>) {
@@ -317,7 +337,11 @@ export class Attempts {
       this.db
         .query("INSERT INTO attempt_ops (attempt_id, op, state, generation, started_at, detail_json) VALUES (?, ?, 'started', ?, ?, ?)")
         .run(a.id, op, gen, this.inbox.now(), detail ? JSON.stringify(detail) : null);
-      if (op === "dispatch_prompt") this.patch(a.id, { prompt_state: "started", prompt_started_at: this.inbox.now() });
+      if (op === "dispatch_prompt") {
+        // Only a definitive rejection (cleared back to none) allows a second dispatch.
+        if (a.prompt_state !== "none") throw new InboxError("STATE_CONFLICT", `The opening prompt is already ${a.prompt_state}.`);
+        this.patch(a.id, { prompt_state: "started", prompt_started_at: this.inbox.now() });
+      }
       return null;
     });
   }
@@ -338,8 +362,12 @@ export class Attempts {
   /** @internal Forget a failed op so a retry may perform it again. Refuses anything else. */
   clearFailedOp(attemptId: string, gen: number, op: OpName) {
     this.fencedWrite(attemptId, gen, (a) => {
+      // A failed dispatch whose prompt the bridge accepted anyway was delivered: keep that evidence.
+      if (op === "dispatch_prompt" && a.prompt_state !== "rejected") {
+        throw new InboxError("STATE_CONFLICT", `The opening prompt is ${a.prompt_state}; it cannot be sent again.`);
+      }
       this.db.query("DELETE FROM attempt_ops WHERE attempt_id = ? AND op = ? AND state = 'failed'").run(a.id, op);
-      if (op === "dispatch_prompt" && a.prompt_state === "rejected") this.patch(a.id, { prompt_state: "none" });
+      if (op === "dispatch_prompt") this.patch(a.id, { prompt_state: "none" });
     });
   }
 
@@ -369,6 +397,8 @@ export class Attempts {
   // Final transaction (spec §9.1 step 7): receipt, success, archive(delivered) and events together.
   commitDelivery(attemptId: string, gen: number, focus: Record<string, unknown>): AttemptView {
     return this.fencedWrite(attemptId, gen, (a) => {
+      // A block or uncertainty (e.g. the bridge saw the session replaced) needs an explicit resume first.
+      if (a.status !== "in_progress") throw new InboxError("STATE_CONFLICT", `The attempt is ${a.status}; resolve it before delivery.`, { status: a.status });
       if (!a.binding_json) throw new InboxError("RECEIPT_INVALID", "No startup binding was recorded.");
       if (a.prompt_state !== "accepted") throw new InboxError("RECEIPT_INVALID", "The opening prompt was not accepted in the bound session.");
       if (!a.receipt_candidate_json) throw new InboxError("RECEIPT_INVALID", "No valid acknowledgment was captured.");
@@ -420,7 +450,15 @@ export class Attempts {
                 : null;
       if (problem) {
         const code = problem.startsWith("session id") || problem.startsWith("working") ? "RECEIPT_INVALID" : "PROFILE_LAUNCH_UNSUPPORTED";
-        this.patch(a.id, { status: "blocked", error_code: code, error_message: `Startup check failed: ${problem}.` });
+        // A different session after binding means the bound conversation may be gone: drop the
+        // receipt it produced so only a new, valid acknowledgment can deliver.
+        this.patch(a.id, {
+          status: "blocked",
+          error_code: code,
+          error_message: `Startup check failed: ${problem}.`,
+          receipt_candidate_json: null,
+          last_rejection_json: this.rejection("bind", problem),
+        });
         this.emitFor(a, "handoff.blocked", "bridge", { code, phase: a.phase });
         return { ok: false, code, reason: problem };
       }
@@ -431,24 +469,30 @@ export class Attempts {
 
   // UserPromptSubmit: accept the protocol prompt once, in the bound session, after the worker
   // recorded its dispatch intent. Anything else fails closed.
-  acceptPrompt(attemptId: string, capability: string, sessionId: string, prompt: string): { ok: true } | { ok: false; reason: string } {
+  // `protocol` says whether the prompt claims to be this attempt's opening prompt: the hook
+  // blocks a protocol prompt that is not accepted and lets ordinary user prompts through.
+  // A closed (terminal or revoked) attempt answers instead of throwing, so later prompts in a
+  // delivered session keep working.
+  acceptPrompt(attemptId: string, capability: string, sessionId: string, cwd: string, prompt: string): PromptResult {
     return this.inbox.write(() => {
-      const a = this.bridgeRow(attemptId, capability);
+      const a = this.row(attemptId);
+      if (a.capability !== capability) throw new InboxError("RECEIPT_INVALID", "Bad attempt capability.");
+      const protocol = prompt.trimStart().startsWith(`${OPENING_PREFIX}${a.id}]`);
+      const refuse = (code: PromptRefusal, reason: string): PromptResult => {
+        if (protocol && !this.closed(a)) this.patch(a.id, { last_rejection_json: this.rejection("prompt", reason) });
+        return { ok: false, protocol, code, reason };
+      };
+      if (this.closed(a)) return refuse("ATTEMPT_CLOSED", `the attempt is ${a.revoked_at ? "revoked" : a.status}`);
+      if (!protocol) return { ok: false, protocol, code: "NOT_PROTOCOL", reason: "not an opening prompt" };
       const expected = a.packet_path ? buildOpeningPrompt(a.id, a.packet_path, a.packet_sha256) : null;
-      const reason = !a.binding_json
-        ? "session is not bound"
-        : sessionId !== a.session_uuid
-          ? "wrong session"
-          : prompt.trim() !== expected
-            ? "not the expected opening prompt"
-            : a.prompt_state === "accepted"
-              ? "opening prompt already accepted"
-              : a.prompt_state !== "started" && a.prompt_state !== "uncertain"
-                ? "no dispatch was recorded for this attempt"
-                : null;
-      if (reason) return { ok: false, reason };
+      if (!a.binding_json) return refuse("NOT_BOUND", "session is not bound");
+      if (sessionId !== a.session_uuid) return refuse("WRONG_SESSION", "wrong session");
+      if (normalizeDir(cwd) !== normalizeDir(a.cwd)) return refuse("WRONG_CWD", "working directory does not match");
+      if (prompt.trim() !== expected) return refuse("PROMPT_MISMATCH", "not the expected opening prompt");
+      if (a.prompt_state === "accepted") return refuse("ALREADY_ACCEPTED", "opening prompt already accepted");
+      if (a.prompt_state !== "started" && a.prompt_state !== "uncertain") return refuse("NO_DISPATCH", "no dispatch was recorded for this attempt");
       this.patch(a.id, { prompt_state: "accepted", prompt_accepted_at: this.inbox.now() });
-      return { ok: true };
+      return { ok: true, protocol: true };
     });
   }
 
@@ -460,7 +504,11 @@ export class Attempts {
       if (sessionId !== a.session_uuid) return { ok: false, reason: "wrong session" };
       if (a.prompt_state !== "accepted") return { ok: false, reason: "opening prompt was not accepted" };
       const parsed = parseReadyMarker(lastMessage);
-      if (!parsed.ok) return parsed;
+      if (!parsed.ok) {
+        // A reply without any marker is an ordinary turn; a broken marker is worth showing.
+        if (lastMessage.includes(READY_MARKER)) this.patch(a.id, { last_rejection_json: this.rejection("receipt", parsed.reason) });
+        return parsed;
+      }
       const r = parsed.receipt;
       const reason =
         r.attempt_id !== a.id
@@ -474,7 +522,10 @@ export class Attempts {
                 : r.challenge !== a.challenge
                   ? "wrong challenge"
                   : null;
-      if (reason) return { ok: false, reason };
+      if (reason) {
+        this.patch(a.id, { last_rejection_json: this.rejection("receipt", reason) });
+        return { ok: false, reason };
+      }
       if (!a.receipt_candidate_json) this.patch(a.id, { receipt_candidate_json: JSON.stringify(r) });
       return { ok: true };
     });
@@ -512,9 +563,27 @@ export class Attempts {
     });
   }
 
+  private closed(a: AttemptRow): boolean {
+    return !!a.revoked_at || !BLOCKING.includes(a.status);
+  }
+
+  // Bounded diagnostic of the last rejected bridge evidence: reason and time, never message text.
+  private rejection(stage: "bind" | "prompt" | "receipt", reason: string): string {
+    return JSON.stringify({ stage, reason: reason.slice(0, 200), at: this.inbox.now() });
+  }
+
   private transition(attemptId: string, gen: number, status: AttemptStatus, event: string, code: string, message: string) {
     this.fencedWrite(attemptId, gen, (a) => {
       const terminal = status === "failed";
+      // `failed` means no side effect is left unresolved (spec §6.2); otherwise the user abandons.
+      if (terminal) {
+        const open = this.db
+          .query("SELECT op FROM attempt_ops WHERE attempt_id = ? AND state IN ('started', 'uncertain')")
+          .all(a.id) as { op: string }[];
+        if (open.length) {
+          throw new InboxError("STATE_CONFLICT", `Unresolved external steps: ${open.map((o) => o.op).join(", ")}. Reconcile or abandon.`);
+        }
+      }
       this.patch(a.id, {
         status,
         error_code: code,
@@ -579,6 +648,7 @@ export class Attempts {
         receipt_candidate: !!a.receipt_candidate_json,
         delivered: a.status === "succeeded",
         focused: !!a.focus_json,
+        last_rejection: a.last_rejection_json ? JSON.parse(a.last_rejection_json) : null,
       },
       ops: ops.map((o) => ({ op: o.op, state: o.state, started_at: o.started_at, finished_at: o.finished_at })),
       next_actions: next,

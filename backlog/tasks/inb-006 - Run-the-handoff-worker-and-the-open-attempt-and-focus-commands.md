@@ -4,7 +4,7 @@ title: 'Run the handoff worker and the open, attempt and focus commands'
 status: To Do
 assignee: []
 created_date: '2026-10-22 07:06'
-updated_date: '2026-10-22 07:19'
+updated_date: '2026-10-22 08:26'
 labels:
   - 'type:feature'
   - worker
@@ -40,3 +40,9 @@ agent-inbox open reserves an attempt and starts a detached worker with stdio ign
 - [ ] #2 Evidence named in the final summary, with what remains unverified
 - [ ] #3 Gates green: bun run typecheck and bun run test pass on the committed revision
 <!-- DOD:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+From INB-002 review F8: the core binding has no Herdr target; the worker owns that check - before dispatch, agent get on the alias must show agent_session.value equal to the attempt session_uuid and the recorded pane.
+<!-- SECTION:NOTES:END -->
