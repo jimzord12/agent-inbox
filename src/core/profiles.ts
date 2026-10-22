@@ -35,7 +35,7 @@ export function loadProfiles(home: string): Record<string, Profile> {
   const out: Record<string, Profile> = {};
   for (const [id, v] of Object.entries(entries)) {
     const p = v as Partial<Profile>;
-    if (p?.agent !== "claude-code" || typeof p.claude_config_dir !== "string" || !win32.isAbsolute(p.claude_config_dir)) {
+    if (p?.agent !== "claude-code" || typeof p.claude_config_dir !== "string" || !isFullyQualified(p.claude_config_dir)) {
       throw new InboxError(
         "PROFILE_NOT_CONFIGURED",
         `Profile "${id}" in ${path} needs agent "claude-code" and an absolute claude_config_dir.`,
@@ -63,4 +63,10 @@ export function launchFingerprint(agent: string, claudeConfigDir: string): strin
 
 export function normalizeDir(p: string): string {
   return win32.normalize(p).replace(/[\\/]+$/, "").toLowerCase();
+}
+
+// A drive path (`C:\...`) or a UNC path (`\\server\share\...`). Root-relative (`\Users`) and
+// drive-relative (`C:Users`) paths are refused: they resolve against whatever is current.
+export function isFullyQualified(p: string): boolean {
+  return /^[A-Za-z]:[\\/]/.test(p) || /^[\\/]{2}[^\\/]+[\\/][^\\/]+/.test(p);
 }

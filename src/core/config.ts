@@ -1,7 +1,7 @@
 import { existsSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
 import { join, win32 } from "node:path";
 import { InboxError } from "./errors";
-import { type Profile, profilesPath } from "./profiles";
+import { type Profile, isFullyQualified, profilesPath } from "./profiles";
 
 // Inbox configuration, in `<home>\config.json`. Every key is optional; a missing file or key
 // takes the default below.
@@ -42,10 +42,14 @@ export function loadConfig(home: string, env: Record<string, string | undefined>
     } catch {
       throw new InboxError("STORE_ERROR", `${path} is not valid JSON.`);
     }
-    const herdr = (raw as { herdr?: Record<string, unknown> })?.herdr ?? {};
-    if (typeof herdr !== "object") throw new InboxError("STORE_ERROR", `${path}: "herdr" must be an object.`);
+    // Unknown keys are refused: a misspelt socket key must not silently select the default server.
+    if (!isPlainObject(raw)) throw new InboxError("STORE_ERROR", `${path} must hold a JSON object.`);
+    refuseUnknown(path, raw, ["herdr"], "");
+    const herdr = raw.herdr === undefined ? {} : raw.herdr;
+    if (!isPlainObject(herdr)) throw new InboxError("STORE_ERROR", `${path}: "herdr" must be an object.`);
+    refuseUnknown(path, herdr, ["socket_path", "workspace_label"], "herdr.");
     if (herdr.socket_path !== undefined) {
-      if (typeof herdr.socket_path !== "string" || !win32.isAbsolute(herdr.socket_path)) {
+      if (typeof herdr.socket_path !== "string" || !isFullyQualified(herdr.socket_path)) {
         throw new InboxError("STORE_ERROR", `${path}: herdr.socket_path must be an absolute path.`);
       }
       config.herdr.socket_path = herdr.socket_path;
@@ -82,26 +86,28 @@ export function writeProfiles(
   force = false,
 ): Record<string, Profile> {
   const path = profilesPath(home);
-  if (existsSync(path) && !force) {
-    throw new InboxError("STATE_CONFLICT", `${path} already exists; pass --force to replace it.`, { path });
-  }
   if (Object.keys(dirs).length === 0) throw new InboxError("INVALID_ARGUMENT", "At least one profile is required.");
-  for (const id of Object.keys(labels)) {
+  for (const [id, label] of Object.entries(labels)) {
     if (!(id in dirs)) throw new InboxError("INVALID_ARGUMENT", `--label names unknown profile "${id}".`, { field: "label" });
+    if (!label.trim()) throw new InboxError("INVALID_ARGUMENT", `The label for "${id}" is empty.`, { field: "label" });
   }
   const profiles: Record<string, Profile> = {};
   for (const [id, dir] of Object.entries(dirs)) {
     if (!PROFILE_ID.test(id)) {
       throw new InboxError("INVALID_ARGUMENT", `Profile id "${id}" must be lowercase letters, digits, - or _.`, { field: "profile" });
     }
-    if (!win32.isAbsolute(dir)) {
-      throw new InboxError("INVALID_ARGUMENT", `Config dir for "${id}" must be absolute: ${dir}`, { field: "profile", profile_id: id });
+    if (!isFullyQualified(dir)) {
+      throw new InboxError("INVALID_ARGUMENT", `Config dir for "${id}" must be absolute (drive or UNC): ${dir}`, { field: "profile", profile_id: id });
     }
     if (!isDir(dir)) {
       throw new InboxError("INVALID_ARGUMENT", `Config dir for "${id}" does not exist: ${dir}`, { field: "profile", profile_id: id });
     }
-    const label = labels[id] ?? id.charAt(0).toUpperCase() + id.slice(1);
-    profiles[id] = { id, label, agent: "claude-code", claude_config_dir: win32.normalize(dir) };
+    const label = labels[id]?.trim() ?? id.charAt(0).toUpperCase() + id.slice(1);
+    profiles[id] = { id, label, agent: "claude-code", claude_config_dir: canonicalDir(dir) };
+  }
+  // Checked after the input, so a bad argument is reported as such even when the file exists.
+  if (existsSync(path) && !force) {
+    throw new InboxError("STATE_CONFLICT", `${path} already exists; pass --force to replace it.`, { path });
   }
   const body = {
     profiles: Object.fromEntries(
@@ -112,6 +118,21 @@ export function writeProfiles(
   writeFileSync(tmp, `${JSON.stringify(body, null, 2)}\n`);
   renameSync(tmp, path);
   return profiles;
+}
+
+// Normalised, without trailing separators (a bare drive root keeps its one).
+export function canonicalDir(p: string): string {
+  const n = win32.normalize(p);
+  return /^[A-Za-z]:\\$/.test(n) ? n : n.replace(/[\\/]+$/, "");
+}
+
+function isPlainObject(v: unknown): v is Record<string, unknown> {
+  return typeof v === "object" && v !== null && !Array.isArray(v);
+}
+
+function refuseUnknown(path: string, obj: Record<string, unknown>, known: string[], prefix: string) {
+  const unknown = Object.keys(obj).filter((k) => !known.includes(k));
+  if (unknown.length) throw new InboxError("STORE_ERROR", `${path}: unknown key ${unknown.map((k) => `"${prefix}${k}"`).join(", ")}.`);
 }
 
 export function isDir(p: string): boolean {

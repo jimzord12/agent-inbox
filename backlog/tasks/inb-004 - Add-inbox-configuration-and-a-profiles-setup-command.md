@@ -5,7 +5,7 @@ status: In Review
 assignee:
   - '@claude'
 created_date: '2026-10-22 07:06'
-updated_date: '2026-10-22 08:31'
+updated_date: '2026-10-22 08:37'
 labels:
   - 'type:feature'
   - core
@@ -42,3 +42,9 @@ Profiles are user-owned config (spec §11): work maps to the .claude-work folder
 <!-- SECTION:PLAN:BEGIN -->
 1. src/core/config.ts: config.json with herdr.socket_path (default APPDATA herdr socket) and herdr.workspace_label (default Agent Inbox), validated, no fallback. 2. writeProfiles: simple ids, absolute existing dirs, atomic write, refuse overwrite without force; defaults = the ccw/ccp folders. 3. CLI setup-profiles with repeatable --profile id=DIR and --label id=TEXT, --force. 4. doctor reports profiles with dir existence and the Herdr config, paths only. 5. README configuration section. 6. Tests, review loop.
 <!-- SECTION:PLAN:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Review round 1 (docs/reviews/INB-004-r1.md, PASS with minors) dispositions: F1 fixed (unknown keys and non-object herdr refused as STORE_ERROR). F2 fixed (isFullyQualified: drive or UNC only, used for profile dirs in setup and load, and for the socket path). F3 fixed (trailing separators stripped before storing). F4 fixed (empty labels refused, labels trimmed). N1 fixed (input validated before the existing-file check). N2 accepted (one-time user command; 18 parallel runs showed one winner). Fixes went to a fresh round 2.
+<!-- SECTION:NOTES:END -->

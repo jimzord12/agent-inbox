@@ -131,3 +131,35 @@ describe("setup-profiles and doctor through the CLI", () => {
     expect(r.out.data.profiles.error).toContain("not valid JSON");
   });
 });
+
+describe("review round 1 fixes", () => {
+  test("unknown or misplaced config keys are refused, never defaulted", () => {
+    for (const bad of [{ herdr: { socketPath: "D:\\x.sock" } }, { herdr: null }, { herdr: [] }, { herdrr: {} }, []]) {
+      writeFileSync(configPath(f.home), JSON.stringify(bad));
+      expectCode(() => loadConfig(f.home, { APPDATA: "C:\\x" }), "STORE_ERROR");
+    }
+  });
+
+  test("root-relative and drive-relative paths are not absolute", () => {
+    expectCode(() => writeProfiles(f.home, { work: "\\Users" }), "INVALID_ARGUMENT");
+    expectCode(() => writeProfiles(f.home, { work: "C:Users" }), "INVALID_ARGUMENT");
+    writeFileSync(configPath(f.home), JSON.stringify({ herdr: { socket_path: "/x.sock" } }));
+    expectCode(() => loadConfig(f.home, {}), "STORE_ERROR");
+    writeFileSync(configPath(f.home), JSON.stringify({ herdr: { socket_path: "\\\\server\\pipe\\herdr.sock" } }));
+    expect(loadConfig(f.home, {}).herdr.socket_path).toBe("\\\\server\\pipe\\herdr.sock");
+  });
+
+  test("a trailing separator is not stored", () => {
+    const p = writeProfiles(f.home, { work: `${work}\\` });
+    expect(p.work?.claude_config_dir).toBe(work);
+  });
+
+  test("empty labels are refused", () => {
+    expectCode(() => writeProfiles(f.home, { work }, { work: "  " }), "INVALID_ARGUMENT");
+  });
+
+  test("bad input is reported before an existing file", () => {
+    writeProfiles(f.home, { work });
+    expectCode(() => writeProfiles(f.home, { work: "relative" }), "INVALID_ARGUMENT");
+  });
+});
