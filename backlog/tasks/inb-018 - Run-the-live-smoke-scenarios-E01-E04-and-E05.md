@@ -4,7 +4,7 @@ title: 'Run the live smoke scenarios E01, E04 and E05'
 status: To Do
 assignee: []
 created_date: '2026-10-22 07:06'
-updated_date: '2026-10-22 11:15'
+updated_date: '2026-10-22 13:03'
 labels:
   - 'type:test'
   - eval
@@ -47,4 +47,6 @@ Evaluation plan §9: E01 (a real producer leaves usable work), E04 (correct prof
 From INB-007: the worker-outlives-caller check used a shell caller in a Herdr tab; E05 (or this task) may repeat it with a Claude session as the caller if that matters for the mod.
 
 Update from INB-007 round 1: the Claude-session caller case is proved (att_mvjfx83i_989b1c1dc48e, caller tab closed 3 s after the claim, delivered). No repeat needed here.
+
+From the M2 milestone review N1: the live evidence came from INB-007's code; every worker change since (INB-008 to INB-022) was checked only against the fake Herdr. Re-prove a delivery live on the current code here.
 <!-- SECTION:NOTES:END -->

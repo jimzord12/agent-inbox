@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { bridgeFiles } from "../../src/bridge/settings";
 import { type AttemptRow, Attempts } from "../../src/core/attempts";
 import { type InboxConfig } from "../../src/core/config";
+import { InboxError } from "../../src/core/errors";
 import { Inbox } from "../../src/core/inbox";
 import { READY_MARKER } from "../../src/core/packet";
 import { profilesPath } from "../../src/core/profiles";
@@ -1102,5 +1103,55 @@ describe("INB-011 review round 1", () => {
     expect(list.filter((a) => a.status === "failed")).toHaveLength(20);
     // Newest first.
     expect([...list].sort((x, y) => (x.created_at < y.created_at ? 1 : -1)).map((a) => a.attempt_id)).toEqual(list.map((a) => a.attempt_id));
+  });
+});
+
+describe("M2 and M3 milestone reviews, round 1", () => {
+  test("a start held by a dialog can be focused so the user can answer it; nothing is sent", async () => {
+    const attempt = openAttempt();
+    const fake = new FakeHerdr({ ...bridge(), onStart: (a) => ((a.agent_status = "blocked"), (a.interactive_ready = false), { error: "agent_not_ready" }) });
+    expect(await runWorker(fake, attempt.id)).toMatchObject({ status: "blocked", error: { code: "AGENT_BLOCKED" } });
+    const before = fake.focused.length;
+    expect(await focusItem(f.inbox, () => fake.herdr(), attempt.item_id)).toMatchObject({ focused: true, starting: true });
+    expect(fake.focused.length).toBe(before + 1);
+    expect(fake.verbs()).not.toContain("agent prompt");
+    // Another session already holding that alias is never focused, dialog or not.
+    fake.agents.get(agentAlias(attempt.id))!.interactive_ready = true;
+    fake.agents.get(agentAlias(attempt.id))!.session = "44444444-4444-4444-8444-444444444444";
+    await expect(focusItem(f.inbox, () => fake.herdr(), attempt.item_id)).rejects.toMatchObject({ code: "AGENT_UNAVAILABLE" });
+  });
+
+  test("a store error inside a Herdr step stops the worker as a crash, not as an unclear Herdr answer", async () => {
+    const attempt = openAttempt();
+    const original = Attempts.prototype.finishOp;
+    const spy = spyOn(Attempts.prototype, "finishOp").mockImplementation(function (this: Attempts, ...args: Parameters<Attempts["finishOp"]>) {
+      if (args[2] === "start_agent" && args[3] === "confirmed") throw new InboxError("STORE_BUSY", "busy");
+      return original.apply(this, args);
+    });
+    let view;
+    try {
+      view = await runWorker(new FakeHerdr(bridge()), attempt.id);
+    } finally {
+      spy.mockRestore();
+    }
+    expect(view!.error!.message).toContain("stopped unexpectedly");
+    expect(view!.ops.find((o) => o.op === "start_agent")!.state).toBe("started");
+  });
+
+  test("the waiting worker replays a receipt the bridge saved aside, without any CLI read", async () => {
+    const attempt = openAttempt();
+    const hooks = bridge({ receipt: false });
+    const fake = new FakeHerdr({
+      ...hooks,
+      onPrompt: (a, t) => {
+        hooks.onPrompt!(a, t);
+        a.agent_status = "idle";
+        a.state_change_seq += 2;
+        // The Stop met a busy store and saved the reply aside.
+        const row = at.row(attempt.id);
+        writeFileSync(join(bridgeFiles(f.home, row.id).dir, RECEIPT_PENDING_FILE), JSON.stringify({ attempt_id: row.id, session_id: row.session_uuid, last_assistant_message: marker(row), written_at: new Date().toISOString() }));
+      },
+    });
+    expect(await runWorker(fake, attempt.id)).toMatchObject({ status: "succeeded" });
   });
 });

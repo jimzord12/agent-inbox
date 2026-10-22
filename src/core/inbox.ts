@@ -576,7 +576,6 @@ export class Inbox {
     }
   }
 
-  /** @internal The item's in_progress / blocked / uncertain attempt, if any. */
   private attemptSummaries(itemId: string): AttemptSummary[] {
     return this.db
       .query(
@@ -594,6 +593,7 @@ export class Inbox {
       .all(itemId, itemId) as AttemptSummary[];
   }
 
+  /** @internal The item's in_progress / blocked / uncertain attempt, if any. */
   blockingAttemptId(itemId: string): string | null {
     const row = this.db
       .query("SELECT id FROM attempts WHERE item_id = ? AND status IN ('in_progress', 'blocked', 'uncertain')")

@@ -14,7 +14,8 @@ function herdrCode(err: unknown): string {
 //   no agent has the alias any more    closed
 //   the alias names another session    unknown (the conversation may live on elsewhere)
 //   Herdr cannot be asked              unavailable
-// Only a session verified by its own session id is ever focused; a pane id alone never is.
+// Only a session verified by its own session id is ever focused, except a start still held by a
+// dialog (below); a pane id alone never is.
 export async function focusItem(inbox: Inbox, herdrFor: (socketPath: string) => Herdr, itemId: string) {
   const attempts = new Attempts(inbox);
   inbox.read(() => inbox.itemRow(itemId));
@@ -41,6 +42,18 @@ export async function focusItem(inbox: Inbox, herdrFor: (socketPath: string) => 
   if (!info) {
     seen("closed");
     throw new InboxError("AGENT_UNAVAILABLE", "The session is no longer running in Herdr.", { ...reference, availability: "closed" });
+  }
+  // A start held by a dialog (trust, login): Herdr learns the session id only once Claude is past
+  // it, so an unfinished attempt's own alias in its own pane with no session id yet is focused,
+  // for the user to answer the dialog. Focus carries no context.
+  if (target.status !== "succeeded" && !info.agent_session?.value && info.pane_id === target.herdr.pane_id) {
+    try {
+      await herdr.focus(alias);
+    } catch (err) {
+      if (!(err instanceof HerdrError)) throw err;
+      throw new InboxError("HERDR_UNAVAILABLE", `Herdr could not focus the session: ${herdrCode(err)}.`, { ...reference, herdr_code: herdrCode(err) });
+    }
+    return { ...reference, focused: true, availability: target.availability, starting: true };
   }
   if (info.agent_session?.value !== target.session_uuid || info.pane_id !== target.herdr.pane_id) {
     seen("unknown");

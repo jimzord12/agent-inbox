@@ -9,6 +9,7 @@ import { buildOpeningPrompt } from "../core/packet";
 import { launchFingerprint, loadProfiles } from "../core/profiles";
 import { sha256Hex } from "../core/submission";
 import { type AgentInfo, type Herdr, HerdrError } from "../herdr/adapter";
+import { replayPending } from "./reconcile";
 
 // The per-attempt handoff worker (spec §4.2, §9.1, §10.2). One process per attempt, started
 // detached by `agent-inbox open`. It owns the attempt through a lease and walks the phases:
@@ -269,6 +270,9 @@ export class Worker {
       this.at.finishOp(a.id, this.gen, "create_tab", "confirmed", { tab_id: tab.tab_id, pane_id: root_pane.pane_id });
       return { paneId: root_pane.pane_id };
     } catch (err) {
+      // Only Herdr's own answers are outcomes of the call; a store error is the worker's, and
+      // stops it as a crash would (reconcile and retry take it from the op log).
+      if (!(err instanceof HerdrError)) throw err;
       if (isRejected(err)) {
         this.at.finishOp(a.id, this.gen, "create_tab", "failed", { code: herdrCode(err) });
         return this.end("fail", "HERDR_UNAVAILABLE", `Herdr refused to create the tab: ${describe(err)}`);
@@ -325,6 +329,7 @@ export class Worker {
       });
       this.at.finishOp(a.id, this.gen, "start_agent", "confirmed");
     } catch (err) {
+      if (!(err instanceof HerdrError)) throw err;
       if (isRejected(err)) {
         this.at.finishOp(a.id, this.gen, "start_agent", "failed", { code: herdrCode(err) });
         return this.end("fail", "AGENT_UNAVAILABLE", `Herdr refused to start Claude: ${describe(err)}`);
@@ -427,6 +432,7 @@ export class Worker {
       await this.d.herdr.prompt(alias, buildOpeningPrompt(a.id, a.packet_path!, a.packet_sha256));
       this.at.finishOp(a.id, this.gen, "dispatch_prompt", "confirmed");
     } catch (err) {
+      if (!(err instanceof HerdrError)) throw err;
       if (isRejected(err)) {
         // Definitive: nothing was typed. The prompt may be sent again by an explicit retry.
         this.at.finishOp(a.id, this.gen, "dispatch_prompt", "failed", { code: herdrCode(err) });
@@ -452,6 +458,12 @@ export class Worker {
     let lastMissing = false;
     for (;;) {
       this.check();
+      // A receipt the bridge saved aside during a busy Stop counts without waiting for a CLI read.
+      try {
+        replayPending(this.d.inbox, this.at, this.attemptId);
+      } catch {
+        // Looked at again on the next poll.
+      }
       const a = this.row;
       if (a.status !== "in_progress") throw new Stop();
       const dispatch = this.opState("dispatch_prompt");

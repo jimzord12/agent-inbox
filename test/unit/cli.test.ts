@@ -277,6 +277,8 @@ describe("open, attempt get", () => {
     expect(done).toMatchObject({ status: "failed", error: { code: "CWD_UNAVAILABLE" } });
     const again = cli(["retry", attempt.id]);
     expect({ code: again.code, err: again.out.error?.code }).toEqual({ code: 1, err: "STATE_CONFLICT" });
+    // A failed attempt is not called abandoned.
+    expect((again.out.error as unknown as { message: string }).message).toContain("failed (CWD_UNAVAILABLE)");
     live.close();
   });
 

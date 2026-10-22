@@ -164,6 +164,13 @@ Shell quirks on this machine:
 
 ## Build decisions (agent, 2026-10-22, from review loops)
 
+- **The receipt does not check the "I am waiting" wording** (M2 review): spec §9.1 step 4 asks the
+  reply to say it is waiting. The check requires the exact marker on the last line and a non-empty
+  orientation before it, but not a phrase: wording varies, a phrase match would be easy to satisfy
+  by accident and refuse a good reply by chance, and the packet's opening-turn instructions already
+  ask Claude to wait. What the receipt proves is unchanged: this session received this packet.
+- **The live worker replays a receipt saved aside** (M3 review): while it waits for the receipt it
+  also replays `receipt-pending.json`, so a busy Stop never needs a CLI read to count.
 - **Session availability is refreshed only by `focus`** (INB-011): reads never call Herdr, so
   `get` and the attempt view show the last value `focus` recorded (live, closed, unknown,
   unavailable), and only for a delivered attempt. Focus is offered unless the session is closed or

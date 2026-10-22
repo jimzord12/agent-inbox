@@ -150,7 +150,9 @@ const COMMANDS: Record<string, Command> = {
       const at = new Attempts(inbox());
       const a = at.row(id!);
       if (!["in_progress", "blocked", "uncertain"].includes(a.status) || a.revoked_at) {
-        throw new InboxError("STATE_CONFLICT", `The attempt is ${a.revoked_at ? "abandoned" : a.status}; nothing to retry.`, { status: a.status });
+        // Every ended attempt is revoked; only the user's abandon is called that.
+        const state = a.error_code === "ABANDONED" ? "abandoned" : a.status === "failed" ? `failed (${a.error_code ?? "no code"})` : a.status;
+        throw new InboxError("STATE_CONFLICT", `The attempt is ${state}; nothing to retry. Open the item again for a new attempt.`, { status: a.status, error_code: a.error_code });
       }
       if (a.error_code === "PROFILE_LAUNCH_UNSUPPORTED") {
         throw new InboxError("PROFILE_LAUNCH_UNSUPPORTED", "The session loaded the wrong Claude profile; abandon this attempt and open the item again.", { attempt_id: a.id });

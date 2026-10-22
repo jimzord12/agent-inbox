@@ -5,7 +5,7 @@ status: In Progress
 assignee:
   - '@claude'
 created_date: '2026-10-22 07:14'
-updated_date: '2026-10-22 12:53'
+updated_date: '2026-10-22 13:03'
 labels:
   - 'type:review'
 milestone: m-2
@@ -35,3 +35,9 @@ Closed review loop on the combined result of milestone M3 against its goal and e
 - [ ] #2 Evidence named in the final summary, with what remains unverified
 - [ ] #3 Gates green: bun run typecheck and bun run test pass on the committed revision
 <!-- DOD:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Round 1 (docs/reviews/m-2-r1.md): PASS with Minors, fixed anyway. F1 fixed: a store error inside a Herdr step's try is rethrown and stops the worker as a crash, instead of being read as an unclear Herdr answer (test). F2 fixed: the waiting worker replays receipt-pending.json on each poll, so a busy Stop needs no CLI read (test; decisions.md). N1-N4, N6 noted; N5 routed to INB-014 (re-check worker survival with the mod as caller). Unverified live: a real Herdr restart, ENOSPC, an OS process kill.
+<!-- SECTION:NOTES:END -->

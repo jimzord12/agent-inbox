@@ -76,7 +76,7 @@ function leaseLive(inbox: Inbox, a: AttemptRow): boolean {
 // The pending file is bridge evidence like any other: replayed through captureReceipt, which
 // checks capability, session, the accepted prompt and every receipt field. Removed once the
 // store has answered, whatever the answer; kept when the store is busy.
-function replayPending(inbox: Inbox, at: Attempts, attemptId: string): boolean {
+export function replayPending(inbox: Inbox, at: Attempts, attemptId: string): boolean {
   const path = join(bridgeFiles(inbox.home, attemptId).dir, RECEIPT_PENDING_FILE);
   if (!existsSync(path)) return false;
   let body: { attempt_id?: unknown; session_id?: unknown; last_assistant_message?: unknown; written_at?: unknown };

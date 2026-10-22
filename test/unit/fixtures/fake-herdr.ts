@@ -68,7 +68,9 @@ export class FakeHerdr {
   private info(a: FakeAgent) {
     return {
       agent: "claude",
-      agent_session: a.session ? { agent: "claude", kind: "id", source: "herdr:claude", value: a.session } : null,
+      // Like real Herdr: the session id comes from Claude's SessionStart hook, which runs only
+      // once a dialog (trust, login) is answered.
+      agent_session: a.session && a.interactive_ready ? { agent: "claude", kind: "id", source: "herdr:claude", value: a.session } : null,
       agent_status: a.agent_status,
       cwd: "C:\\x",
       focused: false,
