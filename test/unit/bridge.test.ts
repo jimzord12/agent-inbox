@@ -304,3 +304,16 @@ describe("helpers", () => {
     expect(looksLikeProtocol("please read [agent-inbox att_x]")).toBe(false);
   });
 });
+
+describe("INB-009 review round 2", () => {
+  test("a refused startup removes a receipt saved aside earlier; an accepted one keeps it", () => {
+    const { files, base, row } = prepared();
+    const pending = join(files.dir, RECEIPT_PENDING_FILE);
+    writeFileSync(pending, "{}");
+    runHook("session-start", files.bridgePath, { ...base, source: "startup" });
+    expect(existsSync(pending)).toBe(true);
+    runHook("session-start", files.bridgePath, { ...base, session_id: "0d9f0000-0000-4000-8000-000000000000", source: "clear" });
+    expect(at.get(row.id).status).toBe("blocked");
+    expect(existsSync(pending)).toBe(false);
+  });
+});

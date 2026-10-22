@@ -1,4 +1,4 @@
-import { renameSync, writeFileSync } from "node:fs";
+import { renameSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { Attempts, parseReadyMarker } from "../core/attempts";
 import { InboxError } from "../core/errors";
@@ -84,12 +84,15 @@ export function handle(
     if (event === "session-start") {
       // A mismatch blocks the attempt and leaves it unbound, so the worker never dispatches and
       // the prompt guard refuses the opening prompt: the session never receives the packet.
-      attempts.bind(ctx.attemptId, ctx.capability, {
+      const bound = attempts.bind(ctx.attemptId, ctx.capability, {
         session_id: sessionId,
         cwd,
         claude_config_dir: env.CLAUDE_CONFIG_DIR ?? "",
         auth_env: authEnvNames(env),
       });
+      // A refused startup drops the receipt candidate on purpose; a receipt saved aside earlier
+      // (busy store at Stop) goes with it, so reconcile can never bring it back.
+      if (!bound.ok && ctx.bridgePath) rmSync(join(dirname(ctx.bridgePath), RECEIPT_PENDING_FILE), { force: true });
       return PASS;
     }
     if (event === "prompt") {

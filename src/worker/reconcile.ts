@@ -35,7 +35,12 @@ export function reconcile(inbox: Inbox): ReconcileResult {
   const result: ReconcileResult = { receipts_replayed: 0, delivered: [], marked_uncertain: [] };
   for (const view of at.unfinished()) {
     try {
-      if (replayPending(inbox, at, view.id)) result.receipts_replayed++;
+      // Its own step: a pending file that keeps failing never stops the lapsed-worker check.
+      try {
+        if (replayPending(inbox, at, view.id)) result.receipts_replayed++;
+      } catch (err) {
+        if (err instanceof InboxError && err.code === "STORE_BUSY") throw err;
+      }
       const a = inbox.read(() => at.row(view.id));
       if (a.status !== "in_progress" || a.revoked_at || leaseLive(inbox, a)) continue;
       const ops = at.ops(a.id);

@@ -952,7 +952,7 @@ describe("INB-009 review round 1", () => {
     }
   });
 
-  test("a busy store keeps the pending receipt for the next pass and ends the pass at once", async () => {
+  test("a busy store keeps the pending receipt for the next pass", async () => {
     const attempt = openAttempt();
     await runWorker(new FakeHerdr(bridge({ receipt: false })), attempt.id);
     const row = at.row(attempt.id);
@@ -986,5 +986,27 @@ describe("INB-009 review round 1", () => {
     fake.tabs.push({ tab_id: `${fake.tabs[0]!.workspace_id}:t99`, workspace_id: fake.tabs[0]!.workspace_id, label: "work Someone else's tab 999999", env: {}, cwd: "C:\\x" });
     await runWorker(fake, attempt.id, true);
     expect(JSON.parse(at.ops(attempt.id).find((o) => o.op === "create_tab")!.detail_json!).candidate_tabs).toEqual([fake.tabs[0]!.tab_id]);
+  });
+});
+
+describe("INB-009 review round 2", () => {
+  test("orphan tabs are looked for only on the attempt's own Herdr server", async () => {
+    const attempt = openAttempt();
+    const fake = new FakeHerdr({ ...bridge(), onTabCreate: () => ({ timeout: true }) });
+    await runWorker(fake, attempt.id);
+    f.inbox.db.run("UPDATE attempts SET herdr_session = ? WHERE id = ?", ["C:\\Users\\someone\\other.sock", attempt.id]);
+    const view = await runWorker(fake, attempt.id, true);
+    expect(JSON.parse(at.ops(attempt.id).find((o) => o.op === "create_tab")!.detail_json!).candidate_tabs).toEqual([]);
+    expect(view!.error!.message).toContain("no tab with this attempt's id was found");
+    expect(fake.verbs()).not.toContain("tab list");
+  });
+
+  test("a pending file that keeps failing never stops the dead-worker check", () => {
+    const attempt = openAttempt();
+    const g = at.claim(attempt.id, "w", 60_000)!;
+    at.beginOp(attempt.id, g, "create_tab", { workspace_id: "w1" });
+    f.clock.advance(61_000);
+    mkdirSync(join(bridgeFiles(f.home, attempt.id).dir, RECEIPT_PENDING_FILE), { recursive: true });
+    expect(reconcile(f.inbox).marked_uncertain).toEqual([attempt.id]);
   });
 });
