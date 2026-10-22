@@ -1010,3 +1010,67 @@ describe("INB-009 review round 2", () => {
     expect(reconcile(f.inbox).marked_uncertain).toEqual([attempt.id]);
   });
 });
+
+describe("availability after delivery (INB-011)", () => {
+  async function delivered() {
+    const attempt = openAttempt();
+    const fake = new FakeHerdr(bridge());
+    expect(await runWorker(fake, attempt.id)).toMatchObject({ status: "succeeded" });
+    return { attempt, fake, alias: agentAlias(attempt.id) };
+  }
+
+  test("focus checks the live session id first, then focuses and records it live", async () => {
+    const { attempt, fake } = await delivered();
+    const before = fake.calls.length;
+    expect(await focusItem(f.inbox, () => fake.herdr(), attempt.item_id)).toMatchObject({ focused: true, availability: "live" });
+    expect(fake.verbs().slice(before)).toEqual(["agent get", "agent focus"]);
+    expect(at.get(attempt.id).availability).toBe("live");
+  });
+
+  test("a closed session stays in History as closed; focus is no longer offered, its reference is", async () => {
+    const { attempt, fake } = await delivered();
+    fake.agents.clear();
+    const focused = fake.focused.length;
+    await expect(focusItem(f.inbox, () => fake.herdr(), attempt.item_id)).rejects.toMatchObject({ code: "AGENT_UNAVAILABLE", details: { availability: "closed" } });
+    expect(fake.focused.length).toBe(focused);
+    const view = at.get(attempt.id);
+    expect(view).toMatchObject({ status: "succeeded", availability: "closed" });
+    expect(view.next_actions).toEqual(["copy_session_reference"]);
+    const item = f.inbox.get(attempt.item_id);
+    expect(item).toMatchObject({ placement: "history", archive_reason: "delivered" });
+    expect(item.attempts[0]).toMatchObject({ attempt_id: attempt.id, status: "succeeded", session_uuid: at.row(attempt.id).session_uuid, availability: "closed" });
+    expect(item.attempts[0]!.delivered_at).toMatch(/^\d{4}-/);
+  });
+
+  test("a replaced session is unknown and never focused by its pane id", async () => {
+    const { attempt, fake, alias } = await delivered();
+    // The same pane, the same alias, another conversation.
+    fake.agents.get(alias)!.session = "33333333-3333-4333-8333-333333333333";
+    const focused = fake.focused.length;
+    await expect(focusItem(f.inbox, () => fake.herdr(), attempt.item_id)).rejects.toMatchObject({ code: "AGENT_UNAVAILABLE", details: { availability: "unknown" } });
+    expect(fake.focused.length).toBe(focused);
+    expect(at.get(attempt.id).availability).toBe("unknown");
+    expect(at.get(attempt.id).next_actions).toContain("focus");
+  });
+
+  test("Herdr not answering marks the session unavailable and changes nothing else", async () => {
+    const { attempt, fake } = await delivered();
+    fake.hooks.before = () => ({ error: "server_not_running" });
+    await expect(focusItem(f.inbox, () => fake.herdr(), attempt.item_id)).rejects.toMatchObject({ code: "HERDR_UNAVAILABLE" });
+    expect(at.get(attempt.id)).toMatchObject({ status: "succeeded", availability: "unavailable" });
+    // Once Herdr is back and the session lives, focus works again.
+    fake.hooks.before = undefined;
+    expect(await focusItem(f.inbox, () => fake.herdr(), attempt.item_id)).toMatchObject({ availability: "live" });
+  });
+
+  test("get lists every attempt of the item, newest first, with its session reference", async () => {
+    const { attempt } = await delivered();
+    const state = f.inbox.get(attempt.item_id).state_version;
+    f.inbox.restore(attempt.item_id, state);
+    const fresh = at.open(attempt.item_id, 1, { fresh: true }).attempt;
+    const list = f.inbox.get(attempt.item_id).attempts;
+    expect(list.map((a) => a.attempt_id).sort()).toEqual([attempt.id, fresh.id].sort());
+    expect(list.find((a) => a.attempt_id === fresh.id)).toMatchObject({ status: "in_progress", delivered_at: null });
+    expect(list.find((a) => a.attempt_id === attempt.id)!.delivered_at).not.toBeNull();
+  });
+});

@@ -656,7 +656,9 @@ export class Attempts {
       if (a.status !== "in_progress") next.push("retry");
       next.push("abandon");
     } else if (a.status === "succeeded") {
-      next.push("focus", "copy_session_reference");
+      // A session known to be gone is not offered for focus; its reference always is.
+      if (a.availability !== "closed") next.push("focus");
+      next.push("copy_session_reference");
     }
     return {
       id: a.id,

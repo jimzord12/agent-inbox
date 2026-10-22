@@ -89,6 +89,22 @@ export interface ItemDetail extends ItemView {
     handoff: { sha256: string; bytes: number; source: string; captured_at: string } | null;
     handoff_text?: string;
   };
+  // The item's handoff attempts, newest first (spec §8 "attempt summary"). A delivered one keeps
+  // its session reference for good; `availability` says whether that session is known to live.
+  attempts: AttemptSummary[];
+}
+
+export interface AttemptSummary {
+  attempt_id: string;
+  content_revision: number;
+  status: string;
+  phase: string;
+  error_code: string | null;
+  profile_id: string;
+  session_uuid: string;
+  availability: string;
+  created_at: string;
+  delivered_at: string | null;
 }
 
 export interface EventView {
@@ -265,6 +281,7 @@ export class Inbox {
               }
             : null,
         },
+        attempts: this.attemptSummaries(item.id),
       };
       if (opts.includeContext && rev.handoff_bytes) detail.revision.handoff_text = utf8Decoder.decode(rev.handoff_bytes);
       return detail;
@@ -559,6 +576,17 @@ export class Inbox {
   }
 
   /** @internal The item's in_progress / blocked / uncertain attempt, if any. */
+  private attemptSummaries(itemId: string): AttemptSummary[] {
+    return this.db
+      .query(
+        `SELECT a.id AS attempt_id, a.content_revision, a.status, a.phase, a.error_code, a.profile_id, a.session_uuid,
+           a.availability, a.created_at,
+           (SELECT e.at FROM events e WHERE e.attempt_id = a.id AND e.type = 'handoff.delivered') AS delivered_at
+         FROM attempts a WHERE a.item_id = ? ORDER BY a.created_at DESC, a.id DESC LIMIT 20`,
+      )
+      .all(itemId) as AttemptSummary[];
+  }
+
   blockingAttemptId(itemId: string): string | null {
     const row = this.db
       .query("SELECT id FROM attempts WHERE item_id = ? AND status IN ('in_progress', 'blocked', 'uncertain')")
