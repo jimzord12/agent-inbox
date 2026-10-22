@@ -4,7 +4,7 @@ title: Inject faults around every handoff phase
 status: To Do
 assignee: []
 created_date: '2026-10-22 07:06'
-updated_date: '2026-10-22 11:20'
+updated_date: '2026-10-22 12:19'
 labels:
   - 'type:test'
   - worker
@@ -42,4 +42,6 @@ Acceptance list 'Crash and storage recovery' in docs/generic-agent-inbox-spec.md
 From INB-005 round 3 N2: test that a busy Stop whose reply is not a valid receipt writes no receipt-pending.json.
 
 From INB-008: inject a crash between finishOp(focus, confirmed) and commitDelivery, then check that retry commits without focusing again.
+
+From INB-009 round 3: F1, stamp receipt-pending.json's written_at when the Stop hook starts (not when it writes), and test a busy Stop that writes after a refused bind (/clear); the candidate must not come back. N1, a SessionStart that meets a busy store records nothing: inject it and decide whether the worker's bind timeout is enough.
 <!-- SECTION:NOTES:END -->

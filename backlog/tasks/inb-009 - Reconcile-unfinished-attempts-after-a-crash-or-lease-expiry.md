@@ -1,11 +1,11 @@
 ---
 id: INB-009
 title: Reconcile unfinished attempts after a crash or lease expiry
-status: In Review
+status: Done
 assignee:
   - '@claude'
 created_date: '2026-10-22 07:06'
-updated_date: '2026-10-22 12:15'
+updated_date: '2026-10-22 12:19'
 labels:
   - 'type:feature'
   - worker
@@ -24,18 +24,18 @@ A replacement worker reads the intent log and live Herdr state; ambiguous steps 
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 an expired lease lets a new worker in and fences the old one out of every write
-- [ ] #2 a started tab creation with no recorded result is matched to a tab only by attempt provenance plus session binding, otherwise left uncertain
-- [ ] #3 a late valid receipt is reconciled without resubmitting the prompt
-- [ ] #4 running any agent-inbox command that reads attempts reconciles unfinished ones without launching anything new
-- [ ] #5 after a Herdr server restart or reconnect, a reused pane id or a replaced occupant is never treated as the old session; context is not sent until the session binding is re-established
+- [x] #1 an expired lease lets a new worker in and fences the old one out of every write
+- [x] #2 a started tab creation with no recorded result is matched to a tab only by attempt provenance plus session binding, otherwise left uncertain
+- [x] #3 a late valid receipt is reconciled without resubmitting the prompt
+- [x] #4 running any agent-inbox command that reads attempts reconciles unfinished ones without launching anything new
+- [x] #5 after a Herdr server restart or reconnect, a reused pane id or a replaced occupant is never treated as the old session; context is not sent until the session binding is re-established
 <!-- AC:END -->
 
 ## Definition of Done
 <!-- DOD:BEGIN -->
-- [ ] #1 Review loop PASS (docs/practices/review.md), report stored under docs/reviews/
-- [ ] #2 Evidence named in the final summary, with what remains unverified
-- [ ] #3 Gates green: bun run typecheck and bun run test pass on the committed revision
+- [x] #1 Review loop PASS (docs/practices/review.md), report stored under docs/reviews/
+- [x] #2 Evidence named in the final summary, with what remains unverified
+- [x] #3 Gates green: bun run typecheck and bun run test pass on the committed revision
 <!-- DOD:END -->
 
 ## Implementation Plan
@@ -58,4 +58,6 @@ Built: src/worker/reconcile.ts, called by get, list, status, open, attempt, retr
 Round 1 (docs/reviews/INB-009-r1.md): FINDINGS. F1 Material fixed: a pending receipt written before the last refused startup (bind rejection) is discarded, so a receipt the bridge dropped on purpose (e.g. /clear) cannot come back; one written after it still counts (INB-002 N2) (test). F2 Material fixed: tests for focus started and uncertain (reconcile makes the attempt uncertain, never delivered). F3 Material fixed: a test holds the store lock; the pending file is kept and replayed on the next pass. F4 fixed: any error on one attempt is swallowed, the read goes on (test with EISDIR). F5 fixed: the first STORE_BUSY ends the pass, so a read waits one busy timeout at most. F6 fixed: the released claim and the orphan label filter are asserted. N3 fixed: orphan tabs are listed only on the attempt's own Herdr server. N1 accepted (a narrow claim race can bump a dialog watcher's generation; the attempt stays recoverable). N2 accepted (fencing makes overlapping reconcilers harmless). N4 accepted, routed to INB-013 (show 'uncertain after sleep' as retryable).
 
 Round 2 (docs/reviews/INB-009-r2.md): PASS with Minors, fixed anyway. F1 fixed at the source: the SessionStart hook deletes receipt-pending.json whenever bind refuses the startup, so a receipt dropped on purpose cannot come back through a later overwrite of the rejection or a skipped pass (bridge test); round 1's 'cannot come back' now holds. The rejection-time check in reconcile stays as a second guard. F2 fixed: a test for orphan tabs on another server (no tab list call); the busy-pass break stays untested (one attempt or many give the same outcome; only timing differs) and the test title no longer claims it. F3 fixed: replay has its own try, so a failing pending file never stops the dead-worker check (test); not logged, since reconcile has no log of its own. N1 accepted (the bridge writes UTC ISO; only hand-edited files compare wrongly). N2 accepted (a busy release leaves a 30 s lease; retry then answers started:false once). N3, N4 noted.
+
+Round 3 (docs/reviews/INB-009-r3.md): PASS. Correction to the round 2 disposition: 'cannot come back' holds except for R3-F1, a Stop hook busy before /clear that writes receipt-pending.json after the refused bind; the candidate then returns on the blocked attempt, without a false delivery (Herdr reports the new session). Carried to INB-010: stamp written_at when the Stop hook starts and add the interleaving test. N1 carried to INB-010 (a SessionStart meeting a busy store records nothing). N2, N3 accepted. Evidence: reconcile, orphan-tab and restart tests in test/unit/worker.test.ts, the bridge test, CLI reconcile-on-read test; deletion probes in rounds 1-3. Unverified live: a real Herdr restart.
 <!-- SECTION:NOTES:END -->
