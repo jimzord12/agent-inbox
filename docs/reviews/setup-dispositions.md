@@ -28,7 +28,7 @@ The setup is not a board task, so its dispositions live here (reports stay verba
 
 | id | disposition |
 |---|---|
-| S2-01 | Fixed and pushed in dc41e42: the search-term list is redacted from `setup-r1.md` line 28 (marked in place), and `review.md` now forbids listing searched private terms. The terms remain in public history (every commit from 08aa4b7 up to 81386ff carries the unredacted file); rewriting it needs a force push, which is outside the standing permission, so the owner is asked. |
+| S2-01 | Fixed and pushed in dc41e42: the search-term list is redacted from `setup-r1.md` line 28 (marked in place), and `review.md` now forbids listing searched private terms. The terms remain in public history (every commit from 08aa4b7 up to 81386ff carries the unredacted file); rewriting it needs a force push, which is outside the standing permission, so the owner is asked. Owner approved; history rewritten and force-pushed 2026-10-22 (decisions.md, Resolved). |
 | S2-02 | Fixed: the m-5 exit condition no longer requires the final loop; INB-027 owns it. |
 | S2-03 | Fixed: the gate item (now DoD #3 after the edit reordered it) of all 27 tasks reads `bun run test`; README and preflight use `bun run test`. |
 | S2-04 | Fixed: AGENTS.md uses zero-padded `INB-<nnn>` and names the INB-020 install exception; preflight §7.4 matches AGENTS.md on the trust dialog; preflight §9.3 matches INB-018. |

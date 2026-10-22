@@ -5,7 +5,10 @@ import { readFileSync } from "node:fs";
 import { type HookContext, type HookEvent, type HookOutcome, failClosed, safeHandle } from "./hooks";
 
 const EVENTS: HookEvent[] = ["session-start", "prompt", "stop"];
-// Below the settings timeout (15 s), so the hook always answers itself instead of being killed.
+// Below the settings timeout (15 s). The deadline bounds the stdin read; store waits are
+// synchronous and bounded by their own busy timeout instead (HOOK_BUSY_TIMEOUT_MS, hooks.ts).
+// A synchronous read of the bridge file on a hung disk is not bounded: past 15 s Claude cancels
+// the hook, the prompt proceeds, and acceptance is never recorded, so nothing is delivered.
 // AGENT_INBOX_HOOK_DEADLINE_MS lowers it for tests only.
 const DEADLINE_MS = Math.min(10_000, Number(process.env.AGENT_INBOX_HOOK_DEADLINE_MS) || 10_000);
 const MAX_INPUT_BYTES = 8 * 1024 * 1024;
@@ -32,15 +35,15 @@ function readContext(path: string): HookContext {
   if (typeof raw.home !== "string" || typeof raw.attempt_id !== "string" || typeof raw.capability !== "string") {
     throw new Error("bridge file is incomplete");
   }
-  return { home: raw.home, attemptId: raw.attempt_id, capability: raw.capability };
+  return { home: raw.home, attemptId: raw.attempt_id, capability: raw.capability, bridgePath: path };
 }
 
 export async function run(argv: string[]): Promise<never> {
   const event = argv[0] as HookEvent;
   if (!EVENTS.includes(event)) finish({ exitCode: 0 });
   let input: Record<string, unknown> | null = null;
-  // A hung store or disk never holds the session: at the deadline a protocol prompt is blocked
-  // and everything else passes. A prompt whose input could not even be read is blocked too,
+  // Input that never arrives never holds the session: at the deadline a protocol prompt is
+  // blocked and everything else passes. A prompt whose input could not even be read is blocked too,
   // since it may be the opening prompt; the user can send an ordinary prompt again.
   const timer = setTimeout(() => {
     if (input === null && event === "prompt") finish({ exitCode: 2, stderr: "agent-inbox: hook timed out; send the prompt again." });

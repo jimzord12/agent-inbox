@@ -5,7 +5,7 @@ status: In Progress
 assignee:
   - '@claude'
 created_date: '2026-10-22 07:14'
-updated_date: '2026-10-22 08:44'
+updated_date: '2026-10-22 10:25'
 labels:
   - 'type:review'
 milestone: m-0
@@ -47,4 +47,6 @@ Closed review loop on the combined result of milestone M1 against its goal and e
 Carried from INB-001 round 2: R2-F1 (CLI filter test must discriminate --kind, --unread and --producer with a second producer and kind) and R2-F2 (a locked handoff file gives a retryable INVALID_ITEM with exit 2; decide a non-usage code such as HANDOFF_UNAVAILABLE with exit 1, plus a test). Fix both in the milestone round so the M1 review covers them.
 
 Carried from INB-002 round 3: R3-F1 (fail must also refuse when prompt_state is accepted; only abandon or established closure may end such an attempt; add a test), N3 (rename or extend the last-rejection test to cover delivery). N1 (commit only after a confirmed focus op) belongs to INB-006; N2 (show prompt_state, not the raw op state) to INB-013.
+
+Round 1 (docs/reviews/m-0-r1.md): PASS. Dispositions: M0-R1-F1 fixed (update compares the content hash before the revision check, so a retry after a lost response is changed:false; test added). M0-R1-F2 fixed (spyOn readFileSync throws EBUSY once; submit returns HANDOFF_UNAVAILABLE, retryable, no item stored). N1 routed to INB-013 (poll attempt get, not change_token). N2 routed to INB-006 and the M2 loop (INB-022). N3 routed to INB-015 (producers cap retries). N4 no action. N5 fixed (docs/reviews/README.md example is m-0-r1.md). Fixes changed reviewed code, so round 2 reviews the final snapshot.
 <!-- SECTION:NOTES:END -->

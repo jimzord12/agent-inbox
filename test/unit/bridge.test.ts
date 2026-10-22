@@ -1,10 +1,10 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { Attempts } from "../../src/core/attempts";
 import { READY_MARKER, buildOpeningPrompt } from "../../src/core/packet";
 import { profilesPath } from "../../src/core/profiles";
-import { authEnvNames, looksLikeProtocol } from "../../src/bridge/hooks";
+import { RECEIPT_PENDING_FILE, authEnvNames, looksLikeProtocol } from "../../src/bridge/hooks";
 import { HOOK_TIMEOUT_SECONDS, bridgeFiles, writeBridgeSettings } from "../../src/bridge/settings";
 import { type Fixture, fixture } from "../helpers";
 
@@ -166,6 +166,29 @@ describe("UserPromptSubmit", () => {
     expect(runHook("prompt", join(f.dir, "missing.json"), { ...base, prompt }).code).toBe(2);
   });
 
+  test("a home that no longer exists is left alone: no store is created", () => {
+    const { files, base, prompt, row } = prepared();
+    const gone = join(f.dir, "gone-home");
+    writeFileSync(files.bridgePath, JSON.stringify({ home: gone, attempt_id: row.id, capability: row.capability }));
+    expect(runHook("prompt", files.bridgePath, { ...base, prompt: "hello" })).toEqual({ code: 0, stdout: "", stderr: "" });
+    expect(runHook("stop", files.bridgePath, { ...base, last_assistant_message: marker(row) }).code).toBe(0);
+    const blocked = runHook("prompt", files.bridgePath, { ...base, prompt });
+    expect(blocked.code).toBe(2);
+    expect(blocked.stderr).toContain("STORE_ERROR");
+    expect(existsSync(gone)).toBe(false);
+  });
+
+  test("a blocked attempt refuses its opening prompt", () => {
+    const { row, gen, files, base, prompt } = prepared();
+    runHook("session-start", files.bridgePath, { ...base, source: "startup" });
+    at.beginOp(row.id, gen, "dispatch_prompt");
+    at.block(row.id, gen, "AGENT_BLOCKED", "waiting for the owner");
+    const r = runHook("prompt", files.bridgePath, { ...base, prompt });
+    expect(r.code).toBe(2);
+    expect(r.stderr).toContain("ATTEMPT_BLOCKED");
+    expect(at.get(row.id).evidence.prompt_state).not.toBe("accepted");
+  });
+
   test("an unknown attempt id blocks only protocol prompts", () => {
     const { files, base, prompt, row } = prepared();
     writeFileSync(files.bridgePath, JSON.stringify({ home: f.home, attempt_id: "att_gone", capability: row.capability }));
@@ -242,11 +265,36 @@ describe("Stop", () => {
     }
     expect(at.get(row.id).evidence.receipt_candidate).toBe(false);
   });
+
+  test("a busy store blocks the opening prompt quickly and keeps a Stop marker for reconcile", () => {
+    const { row, files, base, prompt } = accepted();
+    const pending = join(files.dir, RECEIPT_PENDING_FILE);
+    f.inbox.db.run("BEGIN IMMEDIATE");
+    let busyPrompt: HookRun;
+    let stop: HookRun;
+    const started = Date.now();
+    try {
+      busyPrompt = runHook("prompt", files.bridgePath, { ...base, prompt });
+      stop = runHook("stop", files.bridgePath, { ...base, last_assistant_message: marker(row) });
+    } finally {
+      f.inbox.db.run("ROLLBACK");
+    }
+    expect(Date.now() - started).toBeLessThan(14_000);
+    expect(busyPrompt.code).toBe(2);
+    expect(busyPrompt.stderr).toContain("STORE_BUSY");
+    expect(stop).toEqual({ code: 0, stdout: "", stderr: "" });
+    const saved = JSON.parse(readFileSync(pending, "utf8"));
+    expect(saved).toMatchObject({ attempt_id: row.id, session_id: row.session_uuid });
+    expect(saved.last_assistant_message.startsWith(READY_MARKER)).toBe(true);
+    expect(JSON.stringify(saved)).not.toContain(row.capability);
+    expect(at.get(row.id).evidence.receipt_candidate).toBe(false);
+  }, 30_000);
 });
 
 describe("helpers", () => {
   test("auth env names: names only, case-insensitive, empty values ignored", () => {
     expect(authEnvNames({ ANTHROPIC_API_KEY: "x", anthropic_base_url: "y", ANTHROPIC_MODEL: "z", CLAUDE_CODE_OAUTH_TOKEN: "" })).toEqual(["ANTHROPIC_API_KEY", "ANTHROPIC_BASE_URL"]);
+    expect(authEnvNames({ ANTHROPIC_CUSTOM_HEADERS: "x-api-key: k" })).toEqual(["ANTHROPIC_CUSTOM_HEADERS"]);
   });
 
   test("protocol detection is by prefix only", () => {

@@ -5,7 +5,7 @@ status: In Review
 assignee:
   - '@claude'
 created_date: '2026-10-22 07:06'
-updated_date: '2026-10-22 08:41'
+updated_date: '2026-10-22 10:25'
 labels:
   - 'type:feature'
   - bridge
@@ -48,4 +48,6 @@ The bridge proves the right session got the right packet (docs/generic-agent-inb
 
 <!-- SECTION:NOTES:BEGIN -->
 Facts used (Claude Code hooks docs, via a guide agent; to confirm live in INB-007): exec form is command plus args with no shell; timeout in seconds; UserPromptSubmit exit 2 blocks and erases the prompt, exit 0 with stdout adds context (so the pass path prints nothing); SessionStart cannot block, so a mismatch blocks the attempt instead and the prompt guard refuses the packet; Stop input has last_assistant_message and no agent_id (subagents use SubagentStop); --settings hooks are added to the user's hooks. Unverified until a live launch: that 2.1.308 accepts args (exec form) in --settings hooks.
+
+Round 1 (docs/reviews/INB-005-r1.md): PASS. Dispositions: F1 fixed (hooks open the store with a 2 s busy timeout, HOOK_BUSY_TIMEOUT_MS; worst case about 6 s plus start-up inside the 15 s settings timeout; main.ts comment names the real bounds, including the unbounded bridge-file read on a hung disk). F2 fixed (Stop retries once on STORE_BUSY, then writes the marker lines to receipt-pending.json beside bridge.json for INB-009 to reconcile; test holds the write lock). F3 fixed (bridge opens an existing store only: Inbox store.existingOnly, a missing store is STORE_ERROR, no home or db created; test). N1 routed to INB-006/INB-020 (pin a stable hook script path). N2 fixed, narrowed: a blocked attempt refuses its opening prompt (ATTEMPT_BLOCKED); an uncertain one still accepts, because a late dispatch landing is the evidence that settles it. N3 fixed (ANTHROPIC_CUSTOM_HEADERS added); widening to all ANTHROPIC_*/CLAUDE_CODE_* names stays with the INB-007 environment check. N4 accepted as designed. N5: SessionEnd/StopFailure left to INB-011 and INB-007. Round 2 next.
 <!-- SECTION:NOTES:END -->

@@ -1,6 +1,6 @@
 import type { Database } from "bun:sqlite";
 import { type Clock, newId, systemClock, toStored } from "./clock";
-import { openStore, type StoreInfo } from "./db";
+import { type OpenOptions, openStore, type StoreInfo } from "./db";
 import { InboxError, fromStoreError } from "./errors";
 import { dbPath, ensureHome } from "./home";
 import {
@@ -118,6 +118,8 @@ export interface InboxOptions {
   home: string;
   clock?: Clock;
   limits?: Limits;
+  // The receipt bridge opens an existing store only, with a short busy wait (see bridge/hooks.ts).
+  store?: OpenOptions;
 }
 
 const MAX_PAGE = 200;
@@ -133,10 +135,10 @@ export class Inbox {
   private readonly limits: Limits;
 
   constructor(opts: InboxOptions) {
-    this.home = ensureHome(opts.home);
+    this.home = opts.store?.existingOnly ? opts.home : ensureHome(opts.home);
     this.clock = opts.clock ?? systemClock;
     this.limits = opts.limits ?? DEFAULT_LIMITS;
-    const { db, info } = openStore(dbPath(this.home));
+    const { db, info } = openStore(dbPath(this.home), opts.store);
     this.db = db;
     this.store = info;
   }
@@ -223,9 +225,11 @@ export class Inbox {
       }
       if (item.archived_at) throw historyError(item);
       this.assertNoBlockingAttempt(item);
-      if (ifRevision !== item.content_revision) throw revisionConflict(item);
+      // Content already current wins over a stale revision: a retry after a lost response is a
+      // no-op, not a conflict.
       const current = this.revisionRow(item.id, item.content_revision);
       if (current.content_sha256 === hash) return { item: this.toView(item), changed: false };
+      if (ifRevision !== item.content_revision) throw revisionConflict(item);
 
       const now = this.now();
       const next = item.content_revision + 1;

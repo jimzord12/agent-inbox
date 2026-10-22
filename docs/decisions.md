@@ -148,9 +148,14 @@ Shell quirks on this machine:
 ## Open questions
 
 - Executable name: keep `agent-inbox`, or something shorter. Default: keep it.
-- Rewrite public history to drop private search terms that a review report listed (commits
-  08aa4b7 through 81386ff, inclusive; already redacted in the current tree). Needs the owner's explicit force-push
-  approval; asked 2026-10-22. Agents never force-push without it.
+
+## Resolved
+
+- Public history rewritten 2026-10-22, owner approved: the private search terms one review
+  report listed (old commits 08aa4b7 through 81386ff) are gone from every commit; the redacted
+  file replaced the leaked one, so the final tree is unchanged and every commit id from there
+  on changed. GitHub may still serve the old commits by id until its caches expire. The
+  approval covered that one rewrite; agents still never force-push without a new one.
 
 ## Conventions
 

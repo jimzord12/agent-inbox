@@ -21,15 +21,23 @@ export interface StoreInfo {
   schemaVersion: number;
 }
 
-export function openStore(path: string): { db: Database; info: StoreInfo } {
+export interface OpenOptions {
+  // How long one statement waits for another process's lock before STORE_BUSY.
+  busyTimeoutMs?: number;
+  // Open an existing store only; a missing file is STORE_ERROR instead of a new empty store.
+  existingOnly?: boolean;
+}
+
+export function openStore(path: string, opts: OpenOptions = {}): { db: Database; info: StoreInfo } {
   let db: Database;
   try {
-    db = new Database(path, { create: true, strict: true });
+    db = opts.existingOnly ? new Database(path, { readwrite: true, create: false, strict: true }) : new Database(path, { create: true, strict: true });
   } catch (err) {
+    if ((err as { code?: string })?.code === "SQLITE_CANTOPEN") throw new InboxError("STORE_ERROR", "The inbox store does not exist.");
     throw fromStoreError(err);
   }
   try {
-    db.run(`PRAGMA busy_timeout = ${BUSY_TIMEOUT_MS}`);
+    db.run(`PRAGMA busy_timeout = ${opts.busyTimeoutMs ?? BUSY_TIMEOUT_MS}`);
     db.run("PRAGMA foreign_keys = ON");
     const sqliteVersion = (db.query("SELECT sqlite_version() AS v").get() as { v: string }).v;
     const walResetFix = hasWalResetFix(sqliteVersion);

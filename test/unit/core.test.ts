@@ -1,4 +1,5 @@
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
+import * as fs from "node:fs";
 import { rmSync, writeFileSync } from "node:fs";
 import { Inbox } from "../../src/core/inbox";
 import { parseOffsetTime } from "../../src/core/clock";
@@ -113,6 +114,13 @@ describe("update", () => {
     const { item } = f.inbox.submit(f.actionable());
     f.inbox.update(item.id, 1, f.actionable({ summary: "v2" }));
     expectCode(() => f.inbox.update(item.id, 1, f.actionable({ summary: "v3" })), "REVISION_CONFLICT");
+  });
+
+  test("a retried update whose content already landed is a no-op, not a conflict", () => {
+    const { item } = f.inbox.submit(f.actionable());
+    f.inbox.update(item.id, 1, f.actionable({ summary: "v2" }));
+    const retry = f.inbox.update(item.id, 1, f.actionable({ summary: "v2" }));
+    expect({ changed: retry.changed, rev: retry.item.content_revision }).toEqual({ changed: false, rev: 2 });
   });
 
   test("cannot change identity or kind", () => {
@@ -330,5 +338,20 @@ describe("M1 milestone fixes", () => {
     const missing = handoffReadError("ENOENT");
     expect({ code: missing.code, retryable: missing.retryable, usage: missing.isUsage }).toEqual({ code: "INVALID_ITEM", retryable: false, usage: true });
     expectCode(() => f.inbox.submit(f.actionable({ handoff_path: "C:\\no such dir\\h.md" })), "INVALID_ITEM");
+  });
+
+  test("submit maps a locked handoff file to HANDOFF_UNAVAILABLE and stores nothing", () => {
+    const path = `${f.dir}\\locked.md`;
+    writeFileSync(path, "# Handoff\n");
+    const spy = spyOn(fs, "readFileSync").mockImplementationOnce(() => {
+      throw Object.assign(new Error("resource busy or locked"), { code: "EBUSY" });
+    });
+    try {
+      const e = expectCode(() => f.inbox.submit(f.actionable({ handoff_path: path })), "HANDOFF_UNAVAILABLE");
+      expect((e as unknown as { retryable: boolean }).retryable).toBe(true);
+    } finally {
+      spy.mockRestore();
+    }
+    expect(f.inbox.list({ view: "active" }).items).toHaveLength(0);
   });
 });

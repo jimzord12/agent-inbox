@@ -4,7 +4,7 @@ title: 'Run the handoff worker and the open, attempt and focus commands'
 status: To Do
 assignee: []
 created_date: '2026-10-22 07:06'
-updated_date: '2026-10-22 08:42'
+updated_date: '2026-10-22 10:25'
 labels:
   - 'type:feature'
   - worker
@@ -49,4 +49,6 @@ From INB-002 review F8: the core binding has no Herdr target; the worker owns th
 From INB-003 review round 2 N1: a failed workspace get (any error) must never be read as the workspace being gone; only a null result is.
 
 From INB-002 round 3 N1: commit delivery only after finishOp(focus, confirmed); the core trusts the caller's focus argument.
+
+From INB-005 round 1 N1: writeBridgeSettings defaults the hook script to import.meta.dir/main.ts and Bun to process.execPath; pin stable paths (INB-020 for the installed build).
 <!-- SECTION:NOTES:END -->

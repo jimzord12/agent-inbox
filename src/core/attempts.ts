@@ -108,7 +108,8 @@ export type PromptRefusal =
   | "WRONG_ATTEMPT"
   | "PROMPT_MISMATCH"
   | "ALREADY_ACCEPTED"
-  | "NO_DISPATCH";
+  | "NO_DISPATCH"
+  | "ATTEMPT_BLOCKED";
 
 export type PromptResult = { ok: true; protocol: true } | { ok: false; protocol: boolean; code: PromptRefusal; reason: string };
 
@@ -494,6 +495,9 @@ export class Attempts {
       if (!protocol) return { ok: false, protocol, code: "NOT_PROTOCOL", reason: "not an opening prompt" };
       // Another attempt's opening prompt in this session: its worker targeted the wrong pane.
       if (!prompt.trimStart().startsWith(`${OPENING_PREFIX}${a.id}]`)) return refuse("WRONG_ATTEMPT", "opening prompt of another attempt");
+      // A blocked attempt waits for the owner. An uncertain one still accepts: its dispatch may
+      // land late, and acceptance is the evidence that settles it.
+      if (a.status === "blocked") return refuse("ATTEMPT_BLOCKED", "the attempt is blocked");
       const expected = a.packet_path ? buildOpeningPrompt(a.id, a.packet_path, a.packet_sha256) : null;
       if (!a.binding_json) return refuse("NOT_BOUND", "session is not bound");
       if (sessionId !== a.session_uuid) return refuse("WRONG_SESSION", "wrong session");

@@ -4,7 +4,7 @@ title: Reconcile unfinished attempts after a crash or lease expiry
 status: To Do
 assignee: []
 created_date: '2026-10-22 07:06'
-updated_date: '2026-10-22 07:19'
+updated_date: '2026-10-22 10:25'
 labels:
   - 'type:feature'
   - worker
@@ -36,3 +36,9 @@ A replacement worker reads the intent log and live Herdr state; ambiguous steps 
 - [ ] #2 Evidence named in the final summary, with what remains unverified
 - [ ] #3 Gates green: bun run typecheck and bun run test pass on the committed revision
 <!-- DOD:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+From INB-005 round 1 F2: when the store is busy at Stop, the bridge writes <home>\attempts\<attempt id>\receipt-pending.json ({attempt_id, session_id, last_assistant_message: the INBOX_READY_V1 lines, written_at}). Reconcile must replay it through captureReceipt (the session id and capability checks still apply), then delete it.
+<!-- SECTION:NOTES:END -->

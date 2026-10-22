@@ -1,7 +1,9 @@
+import { renameSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { Attempts } from "../core/attempts";
 import { InboxError } from "../core/errors";
 import { Inbox } from "../core/inbox";
-import { OPENING_PREFIX } from "../core/packet";
+import { OPENING_PREFIX, READY_MARKER } from "../core/packet";
 
 // Receipt-bridge hook logic (spec §9.2 steps 4, 6, 8). One process per hook call, started by
 // Claude through the per-attempt settings file (see settings.ts). Each handler returns what the
@@ -18,6 +20,8 @@ export interface HookContext {
   home: string;
   attemptId: string;
   capability: string;
+  // The bridge file this hook was started with; receipt-pending.json is written beside it.
+  bridgePath?: string;
 }
 
 export interface HookOutcome {
@@ -28,12 +32,19 @@ export interface HookOutcome {
 
 const PASS: HookOutcome = { exitCode: 0 };
 
+// One statement waits at most this long for another process's lock. A hook opens the store
+// (one wait) and writes once (one wait); Stop retries its write once. Worst case about 6 s plus
+// Bun start-up, well inside the 15 s settings timeout.
+export const HOOK_BUSY_TIMEOUT_MS = 2000;
+export const RECEIPT_PENDING_FILE = "receipt-pending.json";
+
 // Variables that change which account or endpoint Claude authenticates against. Only their
 // names are recorded; a present one fails the binding (PROFILE_LAUNCH_UNSUPPORTED).
 const AUTH_ENV = [
   "ANTHROPIC_API_KEY",
   "ANTHROPIC_AUTH_TOKEN",
   "ANTHROPIC_BASE_URL",
+  "ANTHROPIC_CUSTOM_HEADERS",
   "CLAUDE_CODE_OAUTH_TOKEN",
   "CLAUDE_CODE_USE_BEDROCK",
   "CLAUDE_CODE_USE_VERTEX",
@@ -64,7 +75,8 @@ export function handle(
   input: Record<string, unknown>,
   env: Record<string, string | undefined>,
 ): HookOutcome {
-  const inbox = new Inbox({ home: ctx.home });
+  // An existing store only: a session that outlived its inbox home leaves the disk alone.
+  const inbox = new Inbox({ home: ctx.home, store: { existingOnly: true, busyTimeoutMs: HOOK_BUSY_TIMEOUT_MS } });
   try {
     const attempts = new Attempts(inbox);
     const sessionId = str(input, "session_id");
@@ -103,8 +115,44 @@ export function safeHandle(
   try {
     return handle(event, ctx, input, env);
   } catch (err) {
+    if (event === "stop" && isBusy(err)) return stopWhileBusy(ctx, input, env);
     return failClosed(event, input, err);
   }
+}
+
+function isBusy(err: unknown): boolean {
+  return err instanceof InboxError && err.code === "STORE_BUSY";
+}
+
+// Claude never runs Stop again for this turn, so a marker lost to a busy store is lost for good.
+// Retry once; still busy, keep the marker lines beside the bridge file for reconcile (INB-009).
+function stopWhileBusy(ctx: HookContext, input: Record<string, unknown>, env: Record<string, string | undefined>): HookOutcome {
+  try {
+    return handle("stop", ctx, input, env);
+  } catch (err) {
+    if (!isBusy(err) || !ctx.bridgePath) return PASS;
+    const markers = str(input, "last_assistant_message")
+      .split(/\r?\n/)
+      .filter((l) => l.trimStart().startsWith(READY_MARKER));
+    if (!markers.length) return PASS;
+    try {
+      writePending(join(dirname(ctx.bridgePath), RECEIPT_PENDING_FILE), {
+        attempt_id: ctx.attemptId,
+        session_id: str(input, "session_id"),
+        last_assistant_message: markers.join("\n"),
+        written_at: new Date().toISOString(),
+      });
+    } catch {
+      // Nothing else to try; the attempt stays recoverable by abandoning it.
+    }
+    return PASS;
+  }
+}
+
+function writePending(path: string, body: unknown) {
+  const tmp = `${path}.tmp`;
+  writeFileSync(tmp, `${JSON.stringify(body)}\n`);
+  renameSync(tmp, path);
 }
 
 export function failClosed(event: HookEvent, input: Record<string, unknown>, err: unknown): HookOutcome {
