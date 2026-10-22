@@ -4,7 +4,7 @@ title: Reconcile unfinished attempts after a crash or lease expiry
 status: To Do
 assignee: []
 created_date: '2026-10-22 07:06'
-updated_date: '2026-10-22 10:25'
+updated_date: '2026-10-22 10:30'
 labels:
   - 'type:feature'
   - worker
@@ -41,4 +41,6 @@ A replacement worker reads the intent log and live Herdr state; ambiguous steps 
 
 <!-- SECTION:NOTES:BEGIN -->
 From INB-005 round 1 F2: when the store is busy at Stop, the bridge writes <home>\attempts\<attempt id>\receipt-pending.json ({attempt_id, session_id, last_assistant_message: the INBOX_READY_V1 lines, written_at}). Reconcile must replay it through captureReceipt (the session id and capability checks still apply), then delete it.
+
+From INB-005 round 2: the pending file now holds the whole reply; one file per attempt, last write wins, may be stale, so validate it like any bridge evidence.
 <!-- SECTION:NOTES:END -->

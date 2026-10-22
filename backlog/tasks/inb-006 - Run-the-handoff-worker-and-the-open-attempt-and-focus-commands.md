@@ -4,7 +4,7 @@ title: 'Run the handoff worker and the open, attempt and focus commands'
 status: To Do
 assignee: []
 created_date: '2026-10-22 07:06'
-updated_date: '2026-10-22 10:25'
+updated_date: '2026-10-22 10:30'
 labels:
   - 'type:feature'
   - worker
@@ -51,4 +51,6 @@ From INB-003 review round 2 N1: a failed workspace get (any error) must never be
 From INB-002 round 3 N1: commit delivery only after finishOp(focus, confirmed); the core trusts the caller's focus argument.
 
 From INB-005 round 1 N1: writeBridgeSettings defaults the hook script to import.meta.dir/main.ts and Bun to process.execPath; pin stable paths (INB-020 for the installed build).
+
+From M1 round 2 N3: once dispatch has started, a timeout or doubt makes the attempt uncertain, not blocked; a blocked attempt refuses (erases) a late opening prompt.
 <!-- SECTION:NOTES:END -->

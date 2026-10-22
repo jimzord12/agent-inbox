@@ -285,9 +285,11 @@ describe("Stop", () => {
     expect(stop).toEqual({ code: 0, stdout: "", stderr: "" });
     const saved = JSON.parse(readFileSync(pending, "utf8"));
     expect(saved).toMatchObject({ attempt_id: row.id, session_id: row.session_uuid });
-    expect(saved.last_assistant_message.startsWith(READY_MARKER)).toBe(true);
     expect(JSON.stringify(saved)).not.toContain(row.capability);
     expect(at.get(row.id).evidence.receipt_candidate).toBe(false);
+    // What reconcile will do with it: the saved reply replays into a valid candidate.
+    expect(at.captureReceipt(row.id, row.capability, saved.session_id, saved.last_assistant_message)).toEqual({ ok: true });
+    expect(at.get(row.id).evidence.receipt_candidate).toBe(true);
   }, 30_000);
 });
 

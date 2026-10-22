@@ -4,7 +4,7 @@ title: Write the companion skill for producer agents
 status: To Do
 assignee: []
 created_date: '2026-10-22 07:06'
-updated_date: '2026-10-22 08:26'
+updated_date: '2026-10-22 10:30'
 labels:
   - 'type:docs'
   - skill
@@ -37,4 +37,6 @@ Producer projects install a skill so their agents know when and how to submit: d
 
 <!-- SECTION:NOTES:BEGIN -->
 From INB-001 review N1: the companion skill must name the producer surface - submit, update, get, list, events, status - and say the other commands belong to the user.
+
+From the M1 loop: tell producers to cap retries on HANDOFF_UNAVAILABLE (an ACL can deny reading forever), and that update's changed:false means the item now holds their content (also after A-B-A edits).
 <!-- SECTION:NOTES:END -->

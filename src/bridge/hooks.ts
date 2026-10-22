@@ -1,9 +1,9 @@
 import { renameSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { Attempts } from "../core/attempts";
+import { Attempts, parseReadyMarker } from "../core/attempts";
 import { InboxError } from "../core/errors";
 import { Inbox } from "../core/inbox";
-import { OPENING_PREFIX, READY_MARKER } from "../core/packet";
+import { OPENING_PREFIX } from "../core/packet";
 
 // Receipt-bridge hook logic (spec §9.2 steps 4, 6, 8). One process per hook call, started by
 // Claude through the per-attempt settings file (see settings.ts). Each handler returns what the
@@ -33,8 +33,8 @@ export interface HookOutcome {
 const PASS: HookOutcome = { exitCode: 0 };
 
 // One statement waits at most this long for another process's lock. A hook opens the store
-// (one wait) and writes once (one wait); Stop retries its write once. Worst case about 6 s plus
-// Bun start-up, well inside the 15 s settings timeout.
+// (one wait) and writes once (one wait); a busy Stop runs once more, reopening the store. Worst
+// case about 8 s plus Bun start-up, inside the 15 s settings timeout.
 export const HOOK_BUSY_TIMEOUT_MS = 2000;
 export const RECEIPT_PENDING_FILE = "receipt-pending.json";
 
@@ -125,21 +125,21 @@ function isBusy(err: unknown): boolean {
 }
 
 // Claude never runs Stop again for this turn, so a marker lost to a busy store is lost for good.
-// Retry once; still busy, keep the marker lines beside the bridge file for reconcile (INB-009).
+// Retry once; still busy, keep the reply beside the bridge file for reconcile (INB-009).
 function stopWhileBusy(ctx: HookContext, input: Record<string, unknown>, env: Record<string, string | undefined>): HookOutcome {
   try {
     return handle("stop", ctx, input, env);
   } catch (err) {
     if (!isBusy(err) || !ctx.bridgePath) return PASS;
-    const markers = str(input, "last_assistant_message")
-      .split(/\r?\n/)
-      .filter((l) => l.trimStart().startsWith(READY_MARKER));
-    if (!markers.length) return PASS;
+    // The whole message is kept: the receipt check needs the orientation before the marker.
+    // Only a reply that parses as a receipt is worth keeping; the store still checks its fields.
+    const message = str(input, "last_assistant_message");
+    if (!parseReadyMarker(message).ok) return PASS;
     try {
       writePending(join(dirname(ctx.bridgePath), RECEIPT_PENDING_FILE), {
         attempt_id: ctx.attemptId,
         session_id: str(input, "session_id"),
-        last_assistant_message: markers.join("\n"),
+        last_assistant_message: message,
         written_at: new Date().toISOString(),
       });
     } catch {

@@ -164,6 +164,10 @@ Shell quirks on this machine:
 
 ## Build decisions (agent, 2026-10-22, from review loops)
 
+- **An update whose content is already current is a no-op**, checked before the revision guard
+  (M1 review): a producer retrying after a lost response gets `changed:false`, not
+  `REVISION_CONFLICT`. `changed:false` means "the item now holds your content", even if someone
+  else edited in between and back (A-B-A).
 - **Extra error code `HANDOFF_UNAVAILABLE`** (retryable, exit 1): the handoff file exists but is
   locked right now (EBUSY, or EPERM/EACCES from a sharing violation). Spec section 8 has no code for a
   transient input problem; `INVALID_ITEM` would tell producers not to retry.
