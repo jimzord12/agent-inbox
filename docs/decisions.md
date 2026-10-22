@@ -149,7 +149,7 @@ Shell quirks on this machine:
 
 - Executable name: keep `agent-inbox`, or something shorter. Default: keep it.
 - Rewrite public history to drop private search terms that a review report listed (commits
-  08aa4b7..81386ff; already redacted in the current tree). Needs the owner's explicit force-push
+  08aa4b7 through 81386ff, inclusive; already redacted in the current tree). Needs the owner's explicit force-push
   approval; asked 2026-10-22. Agents never force-push without it.
 
 ## Conventions

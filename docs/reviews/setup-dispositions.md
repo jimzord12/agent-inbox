@@ -45,3 +45,9 @@ The setup is not a board task, so its dispositions live here (reports stay verba
 | S3-02 | Fixed: INB-027 gains an AC to re-sync the installed mod if mod/ or the CLI changed after INB-020. |
 | S3-03 | Fixed: S2-01 and S2-03 rows corrected; the history-rewrite question is in decisions.md "Open questions". |
 | S3-04 | Fixed: INB-020 notes say the ccp check is covered by the install approval and how to check an empty real inbox without leaving test items active. |
+
+## Round 4 (`setup-r4.md`, diff dc41e42..c869ac6) — PASS; loop closed
+
+| id | disposition |
+|---|---|
+| S4-01 | Fixed: decisions.md now says "08aa4b7 through 81386ff, inclusive". |
