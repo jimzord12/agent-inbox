@@ -4,7 +4,7 @@ title: 'Run the handoff worker and the open, attempt and focus commands'
 status: To Do
 assignee: []
 created_date: '2026-10-22 07:06'
-updated_date: '2026-10-22 08:26'
+updated_date: '2026-10-22 08:37'
 labels:
   - 'type:feature'
   - worker
@@ -45,4 +45,6 @@ agent-inbox open reserves an attempt and starts a detached worker with stdio ign
 
 <!-- SECTION:NOTES:BEGIN -->
 From INB-002 review F8: the core binding has no Herdr target; the worker owns that check - before dispatch, agent get on the alias must show agent_session.value equal to the attempt session_uuid and the recorded pane.
+
+From INB-003 review round 2 N1: a failed workspace get (any error) must never be read as the workspace being gone; only a null result is.
 <!-- SECTION:NOTES:END -->

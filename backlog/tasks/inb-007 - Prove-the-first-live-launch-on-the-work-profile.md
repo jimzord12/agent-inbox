@@ -4,7 +4,7 @@ title: Prove the first live launch on the work profile
 status: To Do
 assignee: []
 created_date: '2026-10-22 07:06'
-updated_date: '2026-10-22 08:29'
+updated_date: '2026-10-22 08:37'
 labels:
   - 'type:test'
   - live
@@ -31,6 +31,7 @@ Close the open points of docs/preflight.md section 7 for the work profile with a
 - [ ] #4 every gap found is fixed in this task or filed as a task
 - [ ] #5 the worker survives the caller closing: agent-inbox open is run from a Claude session in a Herdr tab of the test workspace, that tab is closed, and the attempt still finishes (records preflight section 7 point 5; the mod is not needed)
 - [ ] #6 a protocol prompt with a wrong attempt id or packet hash is sent into the live session and the UserPromptSubmit hook blocks it before the model sees it (records preflight section 7 point 2)
+- [ ] #7 the real Herdr answers for agent start (incl. agent_not_ready), prompt, list and focus are recorded into test/unit/fixtures/herdr.ts and marked recorded
 <!-- AC:END -->
 
 ## Definition of Done

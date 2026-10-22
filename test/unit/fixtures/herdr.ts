@@ -16,7 +16,7 @@ export const workspaceCreate = JSON.stringify({
   },
 });
 
-// Schema: workspace_info carries the same WorkspaceInfo as workspace_created.
+// Recorded (a second throwaway workspace, w8, renamed to w7 to match the others).
 export const workspaceGet = JSON.stringify({
   id: "cli:workspace:get",
   result: { type: "workspace_info", workspace: { active_tab_id: "w7:t1", agent_status: "unknown", focused: false, label: "inbox-adapter-fixture", number: 3, pane_count: 1, tab_count: 1, workspace_id: "w7" } },

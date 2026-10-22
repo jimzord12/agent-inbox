@@ -5,7 +5,7 @@ status: In Review
 assignee:
   - '@claude'
 created_date: '2026-10-22 07:05'
-updated_date: '2026-10-22 08:29'
+updated_date: '2026-10-22 08:37'
 labels:
   - 'type:feature'
   - herdr
@@ -50,4 +50,6 @@ A draft adapter exists at src/herdr/adapter.ts (committed with the board setup, 
 Discovery: Herdr reports a pane cwd with a trailing backslash (C:\...\fixture dir\). Any cwd comparison (bridge binding, INB-005) must normalise trailing separators. Error envelopes go to stderr with exit 1.
 
 Review round 1 (docs/reviews/INB-003-r1.md, FINDINGS) dispositions: F1 fixed (mutating calls - workspace create, tab create, agent start, prompt, focus - report every error as unknown except codes Herdr raises before acting: not_found, invalid_, server_not_running, server_unavailable, agent_blocked, agent_name_taken, agent_pane_unavailable, agent_target_ambiguous; reads stay rejected; agent_not_ready keeps its code so the worker can focus the blocked pane). F2 accepted and tracked: agent start, prompt, list, focus and workspace get answers are schema-built, not recorded; INB-007 records them. F3 fixed (ensureWorkspace creates a new workspace when the stored id carries another label, and reports replaced). N1 comment added. N2 fixed (only agent_not_found gives null; agent_name_not_found is thrown). N3 fixed (HERDR_SESSION, HERDR_CLIENT_SOCKET_PATH and HERDR_ACTIVE_ variables dropped). N4 accepted (conservative by design; INB-007 checks the real output). Fixes went to a fresh round 2.
+
+Review round 2 (docs/reviews/INB-003-r2.md, FINDINGS) dispositions: R2-F1 fixed (server_unavailable removed from the pre-effect list; the not_found wildcard replaced by explicit target codes, so agent_name_not_found and unknown not_found codes on mutating calls are unknown). R2-F2: workspace get recorded now (second throwaway workspace, closed after); agent start, prompt, list and focus stay schema-built until INB-007, now an acceptance criterion there. N1 noted for INB-006: a failed workspace get must never read as workspace gone.
 <!-- SECTION:NOTES:END -->

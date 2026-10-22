@@ -83,9 +83,17 @@ const defaultRunner: Runner = async (argv, env, timeoutMs) => {
 // a mutating call is `unknown`: `agent start` can answer `agent_not_ready` (Claude is up but
 // blocked, e.g. on a trust dialog), `agent_kind_mismatch` or `timeout` after launching, and a
 // prompt can fail after input was typed. Read calls have no effect, so their errors are rejected.
+// `server_unavailable` is not here: the server sends it while shutting down or when a dispatched
+// command lost its reply. `agent_name_not_found` is not here either: on `agent start` it means
+// the new name was bound and then lost its terminal. Both may follow an effect.
 const PRE_EFFECT_CODES = new Set([
   "server_not_running",
-  "server_unavailable",
+  "workspace_not_found",
+  "tab_not_found",
+  "pane_not_found",
+  "agent_pane_not_found",
+  "target_pane_not_found",
+  "agent_not_found",
   "agent_blocked",
   "agent_name_taken",
   "agent_pane_unavailable",
@@ -93,7 +101,7 @@ const PRE_EFFECT_CODES = new Set([
 ]);
 
 function preEffect(code: string): boolean {
-  return PRE_EFFECT_CODES.has(code) || code.endsWith("_not_found") || code.startsWith("invalid_");
+  return PRE_EFFECT_CODES.has(code) || code.startsWith("invalid_");
 }
 
 // Herdr 0.9.5 writes a success envelope to stdout and an error envelope to stderr, each one

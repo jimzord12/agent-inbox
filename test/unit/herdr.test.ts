@@ -254,3 +254,24 @@ describe("review round 1: errors after a side effect", () => {
     expect(calls[1]?.argv.slice(1, 3)).toEqual(["workspace", "create"]);
   });
 });
+
+describe("review round 2: codes that may follow an effect", () => {
+  const err = (verb: string, code: string) => JSON.stringify({ id: `cli:${verb}`, error: { code, message: code } });
+
+  test("server_unavailable on a mutating call is unknown; on a read it is rejected", async () => {
+    const { herdr } = fake(err("agent:prompt", "server_unavailable"), err("agent:get", "server_unavailable"));
+    expect((await failure(herdr.prompt("inbox-a1b2c3", "hi"))).outcome).toBe("unknown");
+    expect((await failure(herdr.agent("inbox-a1b2c3"))).outcome).toBe("rejected");
+  });
+
+  test("agent_name_not_found on agent start is unknown", async () => {
+    const { herdr } = fake(err("agent:start", "agent_name_not_found"));
+    const e = await failure(herdr.startAgent({ name: "inbox-a1b2c3", paneId: "w7:p2", args: [], timeoutMs: 1000 }));
+    expect(e).toMatchObject({ code: "agent_name_not_found", outcome: "unknown" });
+  });
+
+  test("an unknown *_not_found code on a mutating call is unknown", async () => {
+    const { herdr } = fake(err("tab:create", "session_not_found"));
+    expect((await failure(herdr.createTab({ workspaceId: "w7", cwd: "C:\\x", label: "x", env: {} }))).outcome).toBe("unknown");
+  });
+});
