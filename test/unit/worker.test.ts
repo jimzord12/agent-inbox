@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { bridgeFiles } from "../../src/bridge/settings";
@@ -719,5 +719,61 @@ describe("INB-008 review round 1", () => {
     expect(await runWorker(fake, attempt.id, true)).toMatchObject({ status: "succeeded" });
     expect(at.get(attempt.id).ops.find((o) => o.op === "dispatch_prompt")!.state).toBe("confirmed");
     expect(count(fake, "agent prompt")).toBe(1);
+  });
+});
+
+describe("INB-008 review round 2", () => {
+  test("a wrong-profile verdict recorded during a dialog start is kept; the worker does not overwrite it", async () => {
+    const attempt = openAttempt();
+    const hooks = bridge({ bind: "wrong-dir" });
+    const fake = new FakeHerdr({ ...hooks, onStart: (a, args) => (hooks.onStart!(a, args), { error: "agent_not_ready" }) });
+    expect(await runWorker(fake, attempt.id)).toMatchObject({ status: "blocked", error: { code: "PROFILE_LAUNCH_UNSUPPORTED" } });
+  });
+
+  test("a later refused startup never replaces a wrong-profile verdict", () => {
+    const attempt = openAttempt();
+    const g = at.claim(attempt.id, "w", 60_000)!;
+    at.setPacketPath(attempt.id, g, join(f.dir, "p.md"));
+    const row = at.row(attempt.id);
+    at.bind(row.id, row.capability, { session_id: row.session_uuid, cwd: row.cwd, claude_config_dir: "C:\other", auth_env: [] });
+    at.bind(row.id, row.capability, { session_id: "00000000-0000-4000-8000-000000000000", cwd: row.cwd, claude_config_dir: workDir, auth_env: [] });
+    expect(at.get(row.id)).toMatchObject({ status: "blocked", error: { code: "PROFILE_LAUNCH_UNSUPPORTED" } });
+    expect(at.block(row.id, g, "AGENT_UNAVAILABLE", "x")).toBe(false);
+    expect(at.markUncertain(row.id, g, "DELIVERY_UNCERTAIN", "x")).toBe(false);
+    expect(at.get(row.id).error!.code).toBe("PROFILE_LAUNCH_UNSUPPORTED");
+  });
+
+  test("a retry lifts only the block it read: a verdict landing before the resume is kept", async () => {
+    const attempt = openAttempt();
+    const fake = new FakeHerdr({ ...bridge(), before: (verb) => (verb === "agent focus" ? { error: "agent_not_found" } : undefined) });
+    await runWorker(fake, attempt.id);
+    fake.hooks.before = undefined;
+    const original = Attempts.prototype.resume;
+    const spy = spyOn(Attempts.prototype, "resume").mockImplementationOnce(function (this: Attempts, ...args: Parameters<Attempts["resume"]>) {
+      // The bridge blocks the attempt for the wrong profile between the worker's read and its resume.
+      f.inbox.db.run("UPDATE attempts SET error_code = 'PROFILE_LAUNCH_UNSUPPORTED' WHERE id = ?", [attempt.id]);
+      return original.apply(this, args);
+    });
+    try {
+      expect(await runWorker(fake, attempt.id, true)).toBeNull();
+    } finally {
+      spy.mockRestore();
+    }
+    expect(at.get(attempt.id)).toMatchObject({ status: "blocked", error: { code: "PROFILE_LAUNCH_UNSUPPORTED" } });
+    expect(fake.focused).toHaveLength(0);
+  });
+
+  test("the settle message follows the last read: a session id seen earlier, then lost", async () => {
+    const attempt = openAttempt();
+    const hooks = bridge({ settle: false });
+    let reads = 0;
+    const fake = new FakeHerdr({
+      ...hooks,
+      onGet: (a) => {
+        if (at.row(attempt.id).receipt_candidate_json && ++reads === 2) a.session = null;
+      },
+    });
+    const view = await runWorker(fake, attempt.id);
+    expect(view!.error!.message).toContain("does not report its session id");
   });
 });

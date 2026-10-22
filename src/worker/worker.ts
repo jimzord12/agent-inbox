@@ -335,7 +335,7 @@ export class Worker {
   }
 
   private async watchBlockedStart(alias: string): Promise<boolean> {
-    this.at.block(this.attemptId, this.gen, "AGENT_BLOCKED", "Claude is waiting on a dialog in its tab; answer it there.");
+    if (!this.at.block(this.attemptId, this.gen, "AGENT_BLOCKED", "Claude is waiting on a dialog in its tab; answer it there.")) throw new Stop();
     this.log("block AGENT_BLOCKED: Claude is waiting on a dialog; watching for it to clear");
     try {
       await this.d.herdr.focus(alias);
@@ -530,10 +530,11 @@ export class Worker {
 
   private end(how: "fail" | "block" | "uncertain", code: string, message: string): null {
     this.check();
+    let applied = true;
     if (how === "fail") this.at.fail(this.attemptId, this.gen, code, message);
-    else if (how === "block") this.at.block(this.attemptId, this.gen, code, message);
-    else this.at.markUncertain(this.attemptId, this.gen, code, message);
-    this.log(`${how} ${code}: ${message}`);
+    else if (how === "block") applied = this.at.block(this.attemptId, this.gen, code, message);
+    else applied = this.at.markUncertain(this.attemptId, this.gen, code, message);
+    this.log(applied ? `${how} ${code}: ${message}` : `kept the verdict already recorded instead of ${how} ${code}`);
     return null;
   }
 

@@ -386,12 +386,14 @@ export class Attempts {
     return this.db.query("SELECT * FROM attempt_ops WHERE attempt_id = ? ORDER BY started_at, rowid").all(attemptId) as OpRow[];
   }
 
-  block(attemptId: string, gen: number, code: string, message: string) {
-    this.transition(attemptId, gen, "blocked", "handoff.blocked", code, message);
+  // Block and uncertainty apply only to an attempt in progress. Once someone else (usually the
+  // bridge) recorded a verdict, it is kept and false is returned.
+  block(attemptId: string, gen: number, code: string, message: string): boolean {
+    return this.transition(attemptId, gen, "blocked", "handoff.blocked", code, message);
   }
 
-  markUncertain(attemptId: string, gen: number, code: string, message: string) {
-    this.transition(attemptId, gen, "uncertain", "handoff.uncertain", code, message);
+  markUncertain(attemptId: string, gen: number, code: string, message: string): boolean {
+    return this.transition(attemptId, gen, "uncertain", "handoff.uncertain", code, message);
   }
 
   fail(attemptId: string, gen: number, code: string, message: string) {
@@ -467,13 +469,16 @@ export class Attempts {
                 ? `auth-affecting environment variables are set (${b.auth_env.join(", ")})`
                 : null;
       if (problem) {
-        const code = problem.startsWith("session id") || problem.startsWith("working") ? "RECEIPT_INVALID" : "PROFILE_LAUNCH_UNSUPPORTED";
+        const found = problem.startsWith("session id") || problem.startsWith("working") ? "RECEIPT_INVALID" : "PROFILE_LAUNCH_UNSUPPORTED";
+        // A wrong-profile verdict outranks any later startup mismatch: it is never replaced.
+        const keep = a.status === "blocked" && a.error_code === "PROFILE_LAUNCH_UNSUPPORTED";
+        const code = keep ? "PROFILE_LAUNCH_UNSUPPORTED" : found;
         // A different session after binding means the bound conversation may be gone: drop the
         // receipt it produced so only a new, valid acknowledgment can deliver.
         this.patch(a.id, {
           status: "blocked",
           error_code: code,
-          error_message: `Startup check failed: ${problem}.`,
+          error_message: keep ? a.error_message : `Startup check failed: ${problem}.`,
           receipt_candidate_json: null,
           last_rejection_json: this.rejection("bind", problem),
         });
@@ -595,9 +600,10 @@ export class Attempts {
     return JSON.stringify({ stage, reason: reason.slice(0, 200), at: this.inbox.now() });
   }
 
-  private transition(attemptId: string, gen: number, status: AttemptStatus, event: string, code: string, message: string) {
-    this.fencedWrite(attemptId, gen, (a) => {
+  private transition(attemptId: string, gen: number, status: AttemptStatus, event: string, code: string, message: string): boolean {
+    return this.fencedWrite(attemptId, gen, (a) => {
       const terminal = status === "failed";
+      if (!terminal && a.status !== "in_progress") return false;
       // `failed` means no side effect is left unresolved (spec §6.2); otherwise the user abandons.
       // An accepted prompt means the session already holds the handoff: never "not delivered".
       if (terminal && a.prompt_state === "accepted") {
@@ -619,6 +625,7 @@ export class Attempts {
         ...(terminal ? { lease_owner: null, lease_expires_at: null, revoked_at: this.inbox.now() } : {}),
       });
       this.emitFor(a, event, "worker", { code, phase: a.phase });
+      return true;
     });
   }
 
