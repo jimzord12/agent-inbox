@@ -266,7 +266,7 @@ describe("list, events and status", () => {
 
 describe("store", () => {
   test("uses WAL with the reset fix and survives reopening", () => {
-    expect(f.inbox.store).toMatchObject({ journalMode: "wal", walResetFix: true, schemaVersion: 1 });
+    expect(f.inbox.store).toMatchObject({ journalMode: "wal", walResetFix: true, schemaVersion: 2 });
     const { item } = f.inbox.submit(f.actionable());
     const again = new Inbox({ home: f.home });
     expect(again.get(item.id).id).toBe(item.id);

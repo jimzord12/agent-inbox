@@ -51,4 +51,67 @@ export const MIGRATIONS: string[] = [
   CREATE INDEX events_producer ON events (producer_id, seq);
   CREATE INDEX events_item ON events (item_id, seq);
   `,
+  // 2: handoff attempts and their external-operation intent log.
+  `
+  CREATE TABLE attempts (
+    id                  TEXT PRIMARY KEY,
+    item_id             TEXT NOT NULL REFERENCES items (id),
+    content_revision    INTEGER NOT NULL,
+    status              TEXT NOT NULL CHECK (status IN ('in_progress', 'blocked', 'uncertain', 'failed', 'succeeded')),
+    phase               TEXT NOT NULL CHECK (phase IN ('preflight', 'create_layout', 'start_agent', 'submit_context', 'await_receipt', 'focus')),
+    created_at          TEXT NOT NULL,
+    updated_at          TEXT NOT NULL,
+    -- What is launched.
+    profile_id          TEXT NOT NULL,
+    profile_override    INTEGER NOT NULL DEFAULT 0,
+    fresh               INTEGER NOT NULL DEFAULT 0,
+    launch_fingerprint  TEXT NOT NULL,
+    cwd                 TEXT NOT NULL,
+    agent_kind          TEXT NOT NULL,
+    session_uuid        TEXT NOT NULL UNIQUE,
+    -- Per-attempt secrets for the receipt bridge; never shown in events.
+    capability          TEXT NOT NULL,
+    challenge           TEXT NOT NULL,
+    packet_bytes        BLOB NOT NULL,
+    packet_sha256       TEXT NOT NULL,
+    packet_path         TEXT,
+    -- Outcome.
+    error_code          TEXT,
+    error_message       TEXT,
+    revoked_at          TEXT,
+    -- Worker lease and fencing.
+    lease_owner         TEXT,
+    lease_expires_at    TEXT,
+    fencing_generation  INTEGER NOT NULL DEFAULT 0,
+    -- Herdr target.
+    herdr_session       TEXT,
+    workspace_id        TEXT,
+    tab_id              TEXT,
+    pane_id             TEXT,
+    agent_alias         TEXT,
+    availability        TEXT NOT NULL DEFAULT 'unknown' CHECK (availability IN ('live', 'closed', 'unknown', 'unavailable')),
+    -- Evidence.
+    binding_json        TEXT,
+    prompt_state        TEXT NOT NULL DEFAULT 'none' CHECK (prompt_state IN ('none', 'started', 'accepted', 'rejected', 'uncertain')),
+    prompt_started_at   TEXT,
+    prompt_accepted_at  TEXT,
+    receipt_candidate_json TEXT,
+    receipt_json        TEXT,
+    focus_json          TEXT
+  );
+  CREATE INDEX attempts_item ON attempts (item_id, created_at);
+  -- At most one blocking attempt per item, enforced by the database (spec §6.2).
+  CREATE UNIQUE INDEX attempts_one_blocking ON attempts (item_id) WHERE status IN ('in_progress', 'blocked', 'uncertain');
+
+  CREATE TABLE attempt_ops (
+    attempt_id   TEXT NOT NULL REFERENCES attempts (id),
+    op           TEXT NOT NULL,
+    state        TEXT NOT NULL CHECK (state IN ('started', 'confirmed', 'failed', 'uncertain')),
+    generation   INTEGER NOT NULL,
+    started_at   TEXT NOT NULL,
+    finished_at  TEXT,
+    detail_json  TEXT,
+    PRIMARY KEY (attempt_id, op)
+  );
+  `,
 ];

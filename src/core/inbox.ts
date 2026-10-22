@@ -18,7 +18,7 @@ export type Placement = View;
 export type ArchiveReason = "acknowledged" | "dismissed" | "delivered";
 export type Actor = "producer" | "user" | "worker" | "bridge";
 
-interface ItemRow {
+export interface ItemRow {
   id: string;
   producer_id: string;
   external_id: string;
@@ -35,7 +35,7 @@ interface ItemRow {
   title: string;
 }
 
-interface RevisionRow {
+export interface RevisionRow {
   item_id: string;
   revision: number;
   payload_json: string;
@@ -128,7 +128,7 @@ export class Inbox {
   readonly db: Database;
   readonly store: StoreInfo;
   readonly home: string;
-  private readonly clock: Clock;
+  readonly clock: Clock;
   private readonly limits: Limits;
 
   constructor(opts: InboxOptions) {
@@ -144,12 +144,14 @@ export class Inbox {
     this.db.close();
   }
 
-  private now(): string {
+  /** @internal */
+  now(): string {
     return toStored(this.clock.now());
   }
 
   // Short IMMEDIATE write transaction; SQLite failures become stable inbox errors.
-  private write<T>(fn: () => T): T {
+  /** @internal */
+  write<T>(fn: () => T): T {
     try {
       return this.db.transaction(fn).immediate();
     } catch (err) {
@@ -157,7 +159,8 @@ export class Inbox {
     }
   }
 
-  private read<T>(fn: () => T): T {
+  /** @internal */
+  read<T>(fn: () => T): T {
     try {
       return fn();
     } catch (err) {
@@ -482,13 +485,15 @@ export class Inbox {
 
   // ---- internals --------------------------------------------------------
 
-  private itemRow(id: string): ItemRow {
+  /** @internal */
+  itemRow(id: string): ItemRow {
     const row = this.db.query("SELECT * FROM items WHERE id = ?").get(id) as ItemRow | null;
     if (!row) throw new InboxError("NOT_FOUND", `No item with id ${id}.`, { item_id: id });
     return row;
   }
 
-  private revisionRow(itemId: string, revision: number): RevisionRow {
+  /** @internal */
+  revisionRow(itemId: string, revision: number): RevisionRow {
     const row = this.db
       .query("SELECT * FROM item_revisions WHERE item_id = ? AND revision = ?")
       .get(itemId, revision) as RevisionRow | null;
@@ -511,7 +516,8 @@ export class Inbox {
       .run(...params, this.now(), id);
   }
 
-  private emit(
+  /** @internal */
+  emit(
     type: string,
     actor: Actor,
     itemId: string,
@@ -540,9 +546,12 @@ export class Inbox {
     }
   }
 
-  // Attempts arrive in phase 2; until then no item can have a blocking attempt.
-  protected blockingAttemptId(_itemId: string): string | null {
-    return null;
+  /** @internal The item's in_progress / blocked / uncertain attempt, if any. */
+  blockingAttemptId(itemId: string): string | null {
+    const row = this.db
+      .query("SELECT id FROM attempts WHERE item_id = ? AND status IN ('in_progress', 'blocked', 'uncertain')")
+      .get(itemId) as { id: string } | null;
+    return row?.id ?? null;
   }
 
   private assertNoBlockingAttempt(item: ItemRow) {
