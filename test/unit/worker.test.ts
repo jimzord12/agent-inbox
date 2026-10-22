@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { bridgeFiles } from "../../src/bridge/settings";
 import { type AttemptRow, Attempts } from "../../src/core/attempts";
 import { type InboxConfig } from "../../src/core/config";
+import { Inbox } from "../../src/core/inbox";
 import { READY_MARKER } from "../../src/core/packet";
 import { profilesPath } from "../../src/core/profiles";
 import { sha256Hex } from "../../src/core/submission";
@@ -875,6 +876,8 @@ describe("reconcile (INB-009)", () => {
     const r = reconcile(f.inbox);
     expect(r.marked_uncertain).toEqual([died.id]);
     expect(at.get(died.id)).toMatchObject({ status: "uncertain", error: { code: "DELIVERY_UNCERTAIN" } });
+    // Its claim is released, so a retry can start a worker at once.
+    expect(at.row(died.id).lease_owner).toBeNull();
     expect(at.get(fresh.id).status).toBe("in_progress");
     expect(at.get(held.id).status).toBe("in_progress");
     expect(at.row(held.id).lease_owner).toBe("w2");
@@ -911,5 +914,77 @@ describe("reconcile (INB-009)", () => {
     await runWorker(fake3, a3.id);
     fake3.agents.clear();
     expect(await runWorker(fake3, a3.id, true)).toMatchObject({ status: "blocked", error: { code: "AGENT_UNAVAILABLE" } });
+  });
+});
+
+describe("INB-009 review round 1", () => {
+  const pendingPath = (id: string) => join(bridgeFiles(f.home, id).dir, RECEIPT_PENDING_FILE);
+  const stop = (row: AttemptRow, written_at: string) =>
+    JSON.stringify({ attempt_id: row.id, session_id: row.session_uuid, last_assistant_message: marker(row), written_at });
+
+  test("a pending receipt older than a refused startup stays dropped; one written after it counts", async () => {
+    const attempt = openAttempt();
+    await runWorker(new FakeHerdr(bridge({ receipt: false })), attempt.id);
+    const row = at.row(attempt.id);
+    // The receipt was saved aside, then /clear replaced the session and the bridge refused it.
+    writeFileSync(pendingPath(row.id), stop(row, "2026-10-22T08:59:59.000Z"));
+    at.bind(row.id, row.capability, { session_id: "00000000-0000-4000-8000-000000000000", cwd: row.cwd, claude_config_dir: workDir, auth_env: [] });
+    expect(reconcile(f.inbox).receipts_replayed).toBe(0);
+    expect(existsSync(pendingPath(row.id))).toBe(false);
+    expect(at.get(row.id).evidence.receipt_candidate).toBe(false);
+    // The original session's own later Stop (INB-002 N2) still counts.
+    writeFileSync(pendingPath(row.id), stop(row, "2026-10-22T09:00:01.000Z"));
+    expect(reconcile(f.inbox).receipts_replayed).toBe(1);
+    expect(at.get(row.id).evidence.receipt_candidate).toBe(true);
+  });
+
+  test("the commit shortcut needs a confirmed focus: a started or uncertain one becomes uncertain", async () => {
+    for (const state of ["started", "uncertain"]) {
+      const attempt = openAttempt({ external_id: `focus-${state}` });
+      await runWorker(new FakeHerdr(bridge()), attempt.id);
+      f.inbox.db.run("UPDATE attempts SET status = 'in_progress', receipt_json = NULL, focus_json = NULL, lease_owner = NULL, lease_expires_at = NULL WHERE id = ?", [attempt.id]);
+      f.inbox.db.run("UPDATE items SET archived_at = NULL, archive_reason = NULL WHERE id = ?", [attempt.item_id]);
+      f.inbox.db.run("UPDATE attempt_ops SET state = ?, finished_at = NULL WHERE attempt_id = ? AND op = 'focus'", [state, attempt.id]);
+      const r = reconcile(f.inbox);
+      expect(r.delivered).toEqual([]);
+      expect(at.get(attempt.id)).toMatchObject({ status: "uncertain", evidence: { delivered: false } });
+      expect(at.row(attempt.id).lease_owner).toBeNull();
+    }
+  });
+
+  test("a busy store keeps the pending receipt for the next pass and ends the pass at once", async () => {
+    const attempt = openAttempt();
+    await runWorker(new FakeHerdr(bridge({ receipt: false })), attempt.id);
+    const row = at.row(attempt.id);
+    writeFileSync(pendingPath(row.id), stop(row, "2026-10-22T09:00:01.000Z"));
+    const quick = new Inbox({ home: f.home, store: { busyTimeoutMs: 100 } });
+    f.inbox.db.run("BEGIN IMMEDIATE");
+    let r;
+    try {
+      r = reconcile(quick);
+    } finally {
+      f.inbox.db.run("ROLLBACK");
+    }
+    expect(r.receipts_replayed).toBe(0);
+    expect(existsSync(pendingPath(row.id))).toBe(true);
+    expect(reconcile(quick).receipts_replayed).toBe(1);
+    quick.close();
+  });
+
+  test("an unexpected error on one attempt never breaks the read", async () => {
+    const attempt = openAttempt();
+    await runWorker(new FakeHerdr(bridge({ receipt: false })), attempt.id);
+    // A directory where the pending file should be: reading it fails with EISDIR.
+    mkdirSync(pendingPath(attempt.id), { recursive: true });
+    expect(() => reconcile(f.inbox)).not.toThrow();
+  });
+
+  test("orphan candidates are only tabs carrying this attempt's id", async () => {
+    const attempt = openAttempt();
+    const fake = new FakeHerdr({ ...bridge(), onTabCreate: () => ({ timeout: true }) });
+    await runWorker(fake, attempt.id);
+    fake.tabs.push({ tab_id: `${fake.tabs[0]!.workspace_id}:t99`, workspace_id: fake.tabs[0]!.workspace_id, label: "work Someone else's tab 999999", env: {}, cwd: "C:\\x" });
+    await runWorker(fake, attempt.id, true);
+    expect(JSON.parse(at.ops(attempt.id).find((o) => o.op === "create_tab")!.detail_json!).candidate_tabs).toEqual([fake.tabs[0]!.tab_id]);
   });
 });

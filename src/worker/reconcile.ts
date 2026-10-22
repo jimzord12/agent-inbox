@@ -56,8 +56,9 @@ export function reconcile(inbox: Inbox): ReconcileResult {
         at.release(a.id, gen);
       }
     } catch (err) {
-      // Reconcile never breaks a read: a busy store or a moved attempt is looked at next time.
-      if (!(err instanceof InboxError)) throw err;
+      // Reconcile never breaks a read: whatever went wrong is looked at next time. A busy store
+      // ends the pass, so a read waits at most one busy timeout, not one per attempt.
+      if (err instanceof InboxError && err.code === "STORE_BUSY") break;
     }
   }
   return result;
@@ -73,7 +74,7 @@ function leaseLive(inbox: Inbox, a: AttemptRow): boolean {
 function replayPending(inbox: Inbox, at: Attempts, attemptId: string): boolean {
   const path = join(bridgeFiles(inbox.home, attemptId).dir, RECEIPT_PENDING_FILE);
   if (!existsSync(path)) return false;
-  let body: { attempt_id?: unknown; session_id?: unknown; last_assistant_message?: unknown };
+  let body: { attempt_id?: unknown; session_id?: unknown; last_assistant_message?: unknown; written_at?: unknown };
   try {
     body = JSON.parse(readFileSync(path, "utf8"));
   } catch {
@@ -85,11 +86,19 @@ function replayPending(inbox: Inbox, at: Attempts, attemptId: string): boolean {
     rmSync(path, { force: true });
     return false;
   }
+  // A startup check that failed after the receipt was written (e.g. /clear replaced the session)
+  // dropped that receipt on purpose; a file older than that refusal must not bring it back.
+  const rejection = a.last_rejection_json ? (JSON.parse(a.last_rejection_json) as { stage?: string; at?: string }) : null;
+  if (rejection?.stage === "bind" && typeof rejection.at === "string" && !(typeof body.written_at === "string" && body.written_at > rejection.at)) {
+    rmSync(path, { force: true });
+    return false;
+  }
   let ok = false;
   try {
     ok = at.captureReceipt(a.id, a.capability, body.session_id, body.last_assistant_message).ok;
   } catch (err) {
-    if (err instanceof InboxError && err.code === "STORE_BUSY") return false;
+    // Kept for the next pass while the store is busy; any other refusal settles it.
+    if (err instanceof InboxError && err.code === "STORE_BUSY") throw err;
   }
   rmSync(path, { force: true });
   return ok;

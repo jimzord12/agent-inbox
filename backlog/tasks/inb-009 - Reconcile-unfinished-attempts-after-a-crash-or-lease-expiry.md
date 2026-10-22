@@ -5,7 +5,7 @@ status: In Review
 assignee:
   - '@claude'
 created_date: '2026-10-22 07:06'
-updated_date: '2026-10-22 11:50'
+updated_date: '2026-10-22 12:03'
 labels:
   - 'type:feature'
   - worker
@@ -54,4 +54,6 @@ From INB-005 round 2: the pending file now holds the whole reply; one file per a
 From INB-006 round 3 N2: claiming a blocked row bumps the fencing generation; a dialog-watching worker whose lease lapsed (machine sleep) is then fenced out. Reconcile must leave such an attempt recoverable.
 
 Built: src/worker/reconcile.ts, called by get, list, status, open, attempt, retry and focus before they read; it never calls Herdr. AC1: test where a stalled worker's lease lapses, another owner claims, and the old worker stops without any further write or focus. AC2: a tab created but its answer lost; retry lists the workspace's tabs, records candidates whose label ends with the attempt's short id (op detail candidate_tabs), names them in the message, and starts nothing (a label is never identity and no session can be bound yet). AC3: receipt-pending.json replayed by reconcile through captureReceipt (forged, stale and broken files removed without effect); retry then delivers with one prompt. AC4: reconcile on read (CLI test). AC5: after a Herdr restart, a new occupant or a missing alias never counts as the session (three cases). Design choices: reconcile never claims blocked or uncertain attempts (INB-006 r3 N2) and never restarts an attempt with nothing external recorded (open does that).
+
+Round 1 (docs/reviews/INB-009-r1.md): FINDINGS. F1 Material fixed: a pending receipt written before the last refused startup (bind rejection) is discarded, so a receipt the bridge dropped on purpose (e.g. /clear) cannot come back; one written after it still counts (INB-002 N2) (test). F2 Material fixed: tests for focus started and uncertain (reconcile makes the attempt uncertain, never delivered). F3 Material fixed: a test holds the store lock; the pending file is kept and replayed on the next pass. F4 fixed: any error on one attempt is swallowed, the read goes on (test with EISDIR). F5 fixed: the first STORE_BUSY ends the pass, so a read waits one busy timeout at most. F6 fixed: the released claim and the orphan label filter are asserted. N3 fixed: orphan tabs are listed only on the attempt's own Herdr server. N1 accepted (a narrow claim race can bump a dialog watcher's generation; the attempt stays recoverable). N2 accepted (fencing makes overlapping reconcilers harmless). N4 accepted, routed to INB-013 (show 'uncertain after sleep' as retryable).
 <!-- SECTION:NOTES:END -->

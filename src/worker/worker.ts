@@ -286,7 +286,8 @@ export class Worker {
     const a = this.row;
     const workspaceId = this.opDetail("create_tab")?.workspace_id;
     let candidates: string[] = [];
-    if (typeof workspaceId === "string") {
+    // Only the Herdr server the tab was asked of can hold it.
+    if (typeof workspaceId === "string" && (!a.herdr_session || a.herdr_session === this.d.config.herdr.socket_path)) {
       try {
         const suffix = ` ${a.id.slice(-6)}`;
         candidates = (await this.d.herdr.tabs(workspaceId)).filter((t) => t.label.endsWith(suffix)).map((t) => t.tab_id);
