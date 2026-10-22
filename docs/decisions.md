@@ -197,3 +197,9 @@ Shell quirks on this machine:
   own input is unavailable) is blocked, and ordinary prompts always pass.
 - **Minors found in a task's last review round** are carried to its milestone loop instead of reopening
   the task loop; the milestone review re-reviews that code anyway.
+- **List items carry `latest_attempt`** (`attempt_id`, `status`, `phase`, `error_code`, or null), so
+  the mod's list rows show launch and error status from one `list` call (spec §12.1) instead of one
+  `attempt get` per row every 2 s.
+- **The mod runs the checkout's CLI** (`bun <mod>/../src/cli/main.ts`), found from the mod's own
+  folder; there is no `agent-inbox` on PATH. INB-020 installs from a folder marketplace whose entry is
+  a relative path, which Claude reads in place, so the same path holds after install.

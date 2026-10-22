@@ -64,6 +64,11 @@ bun run test          # unit tests only (test/unit); live runs have their own co
 bun run typecheck
 ```
 
+The `/inbox` mod (`mod/`) is loaded for one session with `claude --plugin-dir mod`, then `/inbox`. It
+calls this checkout's CLI and honours `AGENT_INBOX_HOME`. Check it with `bun run mod:check`
+(validate, the mod's own tests, type-check); the type-check needs the declarations Claude lays into
+`mod/.claude-plugin/types/` the first time a session loads the mod.
+
 ## License
 
 MIT

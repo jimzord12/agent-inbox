@@ -76,6 +76,21 @@ describe("open", () => {
     expect(f.inbox.events({}).events.map((e) => e.type)).toContain("handoff.started");
   });
 
+  test("a list row carries the newest attempt's status and error, for the mod", () => {
+    const { item: plain } = f.inbox.submit(f.actionable({ external_id: "never-opened" }));
+    const { item, attempt } = openItem();
+    const row = (id: string) => f.inbox.list({ view: "active" }).items.find((i) => i.id === id)!;
+    expect(row(plain.id).latest_attempt).toBeNull();
+    expect(row(item.id).latest_attempt).toEqual({ attempt_id: attempt.id, status: "in_progress", phase: "preflight", error_code: null });
+    const gen = at.claim(attempt.id, "w1", 60_000)!;
+    at.block(attempt.id, gen, "AGENT_BLOCKED", "A dialog holds the start.");
+    expect(row(item.id).latest_attempt).toMatchObject({ status: "blocked", error_code: "AGENT_BLOCKED" });
+    // After an abandon and a fresh open, the row shows the new attempt, not the old one.
+    at.abandon(attempt.id);
+    const { attempt: second } = at.open(item.id, 1);
+    expect(row(item.id).latest_attempt).toMatchObject({ attempt_id: second.id, status: "in_progress" });
+  });
+
   test("a second open returns the same attempt", () => {
     const { item, attempt } = openItem();
     const again = at.open(item.id, 1);

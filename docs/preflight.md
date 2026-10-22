@@ -78,7 +78,15 @@ test/          unit, concurrency and fault tests in test/unit (`bun run test`); 
 
 ## 6. Mod support
 
-**In scope; spike done** (docs/decisions.md, 2026-10-22): the mod works on 2.1.308 in both profiles via `claude --plugin-dir`. The full mod preflight facts (spec §14 step 7: policy, generated types, validation tooling) are recorded here by INB-012.
+**In scope; spike done** (docs/decisions.md, 2026-10-22): the mod works on 2.1.308 in both profiles via `claude --plugin-dir`. The mod preflight facts of spec §14 step 7, recorded by INB-012 on 2.1.308:
+
+- **Policy.** No managed policy on this machine (no `managed-settings.json` under `C:\Program Files\ClaudeCode` or `C:\ProgramData\ClaudeCode`). Neither profile's `settings.json` sets a key that limits plugins (`strictKnownMarketplaces`, `allowManagedHooksOnly`, `disableAllHooks`); both only carry their own `enabledPlugins` and `extraKnownMarketplaces`, which the mod does not touch.
+- **Generated types.** An interactive session started with `--plugin-dir mod` lays this build's declarations into `mod/.claude-plugin/types/` (API, built-in tools, connected MCP tools, a `tsconfig.json`; its own `.gitignore` keeps them out of git) and writes `mod/tsconfig.json` extending it. Before any load, the plugin-authoring skill writes the same API file into its own folder. The types are regenerated per build, never edited.
+- **Validation tooling.** `claude plugin validate mod` (manifest, state contract, hooks, calls), `claude plugin test mod` (the engine runs `mod/tests/*.test.tsx`, the engine mocked beneath the mod), `tsc -p mod` once the types are laid. All three pass; the gate (`bun run test`) also covers `mod/hooks/text.ts` through `test/unit/mod-text.test.ts`.
+- **Process calls.** `$.process.run(["bun", ...])` finds `bun` on PATH with no shell on Windows. The mod runs the checkout's CLI at `<mod>/../src/cli/main.ts`; the session's `AGENT_INBOX_HOME` reaches it.
+- **Pane.** Docks beside the transcript in fullscreen and keeps its keys: the view hotkeys (`a`, `s`, `h`) and filter hotkeys work keyboard-only. Wide characters (CJK) take two cells, so rows are laid out by cell width.
+- **Driving it from Herdr.** Git Bash rewrites `/inbox` sent by `herdr pane send-text` into a Windows path (`C:/Program Files/Git/inbox`); send it with `MSYS_NO_PATHCONV=1`.
+- **Producer text.** The core already refuses control characters in titles and summaries; a handoff file can still carry escape sequences, so the mod strips them from every CLI answer regardless.
 
 ## 7. Still unverified — needs a real launch (implementation validation)
 

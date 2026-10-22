@@ -1,10 +1,10 @@
 ---
 id: INB-012
 title: Show the inbox list in a Claude Code mod
-status: To Do
+status: In Progress
 assignee: []
 created_date: '2026-10-22 07:06'
-updated_date: '2026-10-22 07:19'
+updated_date: '2026-10-22 13:30'
 labels:
   - 'type:feature'
   - mod

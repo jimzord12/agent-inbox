@@ -79,6 +79,15 @@ export interface ItemView {
   archived_at: string | null;
   archive_reason: ArchiveReason | null;
   blocking_attempt_id: string | null;
+  // The newest attempt, so a list row can show launch and error status without a second call.
+  latest_attempt: LatestAttempt | null;
+}
+
+export interface LatestAttempt {
+  attempt_id: string;
+  status: AttemptStatus;
+  phase: Phase;
+  error_code: string | null;
 }
 
 export interface ItemDetail extends ItemView {
@@ -601,6 +610,13 @@ export class Inbox {
     return row?.id ?? null;
   }
 
+  private latestAttempt(itemId: string): LatestAttempt | null {
+    const row = this.db
+      .query("SELECT id, status, phase, error_code FROM attempts WHERE item_id = ? ORDER BY created_at DESC, rowid DESC LIMIT 1")
+      .get(itemId) as { id: string; status: AttemptStatus; phase: Phase; error_code: string | null } | null;
+    return row ? { attempt_id: row.id, status: row.status, phase: row.phase, error_code: row.error_code } : null;
+  }
+
   private assertNoBlockingAttempt(item: ItemRow) {
     const attemptId = this.blockingAttemptId(item.id);
     if (attemptId) {
@@ -627,6 +643,7 @@ export class Inbox {
       archived_at: r.archived_at,
       archive_reason: r.archive_reason,
       blocking_attempt_id: this.blockingAttemptId(r.id),
+      latest_attempt: this.latestAttempt(r.id),
     };
   }
 }

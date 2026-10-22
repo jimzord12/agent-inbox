@@ -1,0 +1,9 @@
+{
+  "name": "agent-inbox",
+  "version": "0.1.0",
+  "description": "The /inbox pane: the agent-inbox list, details and actions, through the agent-inbox JSON CLI.",
+  "author": {
+    "name": "jimzord12"
+  },
+  "types": "./types/index.d.ts"
+}
