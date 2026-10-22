@@ -5,7 +5,7 @@ status: In Review
 assignee:
   - '@claude'
 created_date: '2026-10-22 07:06'
-updated_date: '2026-10-22 11:05'
+updated_date: '2026-10-22 11:12'
 labels:
   - 'type:test'
   - live
@@ -52,4 +52,6 @@ From INB-006 round 1 N4: confirm on the real Herdr which counter marks the end o
 From INB-006 round 3: N3, this task's review covers test/e2e/inb007-live.ts (committed with INB-006). N4, make the script refuse a non-empty run dir.
 
 Live run 2026-10-22 10:59-11:03 UTC, workspace inbox-e2e-inb007 (closed afterwards; w4/w5 untouched). Attempt 1 delivered after the trust dialog (worker blocked AGENT_BLOCKED, focused, resumed); attempt 2 delivered with its caller tab closed 8 s after open. Results in docs/preflight.md 7.1. Recorded Herdr answers swapped into test/unit/fixtures/herdr.ts (agent start ok and agent_not_ready, prompt, focus, list); focus answers agent_info, not ok. Gaps: worker.log missed lines written before the attempt folder existed, and the dialog block was not logged (fixed, test). Trust-dialog keypress refused by the harness (filed on INB-017). Caller was a shell, not a Claude session (noted on INB-018). Not verified: the production guard firing (it leaves no trace when it allows; no guarded action was triggered on purpose). test/e2e/inb007-live.ts now refuses a non-empty run dir (INB-006 r3 N4).
+
+Round 1 (docs/reviews/INB-007-r1.md): FINDINGS. F1 Material fixed: a third live run (11:10-11:12 UTC) with a Claude session as the caller in its own test workspace; the session ran open, its tab was closed 3 s after the worker's claim, and the attempt delivered (att_mvjfx83i_989b1c1dc48e). Both test workspaces closed; w4/w5 untouched. F2 fixed (preflight 7.1 row 2: the forged prompt was refused as ATTEMPT_CLOSED; the hash check was not reached live, unit tests cover it). F3 fixed (sentence about the input box dropped). F4 fixed (row 1 names the Herdr SessionStart hook; the production guard is marked inferred, not observed). N1 accepted (the list fixture is a cleaned copy; encoding repaired). N2 accepted (home-folder paths in preflight lines from the scaffold carry only the owner's own public handle, as the setup review accepted). N3 recorded in 7.1 (which runs were by hand). N4 fixed (dialog log lines asserted).
 <!-- SECTION:NOTES:END -->

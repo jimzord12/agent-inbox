@@ -93,17 +93,19 @@ Each is checked in a disposable fixture dir in the `Agent Inbox` workspace, neve
 
 ### 7.1 Results of the first live launch (INB-007, 2026-10-22, work profile)
 
-Two real attempts in a throwaway workspace (`inbox-e2e-inb007`), fixture folder path with a space
-and `é`, Claude Code 2.1.308, Herdr 0.9.5. Both ended `succeeded`, with binding, accepted prompt,
-receipt and confirmed focus recorded.
+Three real attempts in throwaway workspaces (`inbox-e2e-inb007`, plus `inbox-e2e-inb007-caller` for
+the caller session), fixture folder path with a space and `é`, Claude Code 2.1.308, Herdr 0.9.5. All
+three ended `succeeded`, with binding, accepted prompt, receipt and confirmed focus recorded. The
+first ran through `test/e2e/inb007-live.ts`; the caller runs, forged prompts and recordings were done
+by hand.
 
 | Point | Result |
 |---|---|
-| 1. `--settings` additive | **Verified for hooks.** The session's Stop summary lists two hooks: the profile's own notify hook and the inbox bridge (90 ms). The production guard is a PreToolUse hook from the same profile file and merges the same way, but it leaves no trace when it allows a call, and no guarded action was triggered to see it fire. |
-| 2. Hook input and blocking | **Verified.** SessionStart's `session_id` and `cwd` bound the attempt, the opening prompt was accepted, and Stop's `last_assistant_message` gave a valid receipt (144-character orientation). A forged opening prompt (right attempt id, wrong packet hash) was refused (`ATTEMPT_CLOSED`); Claude showed "UserPromptSubmit operation blocked by hook", and the transcript gained no user turn, so the model never saw it. Claude then puts the refused text back in the input box. |
+| 1. `--settings` additive | **Verified for Stop and SessionStart; the production guard inferred, not observed.** The session's Stop summary lists two hooks: the profile's own notify hook and the inbox bridge (90 ms). At SessionStart both ran too: the bridge bound the attempt, and Herdr's own hook reported the session (`agent_session.source` `herdr:claude`). The production guard is a PreToolUse hook in the same profile file; the bridge settings define no PreToolUse hook, so nothing replaces it, but it leaves no trace when it allows a call and no guarded action was triggered to see it fire. |
+| 2. Hook input and blocking | **Verified.** SessionStart's `session_id` and `cwd` bound the attempt, the opening prompt was accepted, and Stop's `last_assistant_message` gave a valid receipt (144-character orientation). A forged opening prompt sent after delivery was refused with `ATTEMPT_CLOSED` (the attempt had already succeeded, so the hash check itself was not reached; unit tests cover it); Claude showed "UserPromptSubmit operation blocked by hook", and the transcript gained no user turn, so the model never saw it. |
 | 3. Env in the session (work) | `CLAUDE_CONFIG_DIR` = the work folder, as the tab set it; no auth-affecting variable names present. The personal side stays with INB-018. |
 | 4. Trust dialog | Claude in a new folder shows "Accessing workspace … Is this a project you created or one you trust?" with "No, exit" preselected. `agent start` answers `agent_not_ready`; the worker blocks with `AGENT_BLOCKED` and focuses the tab; SessionStart runs only after the dialog is answered, and the worker resumes within about a second. The agent's own keypress to confirm was refused by the harness's safety check, so in this run the owner confirmed it; later live runs should reuse an already trusted fixture folder. |
-| 5. Worker outlives its caller | **Verified with a shell caller.** `agent-inbox open` ran in a shell in a test-workspace tab; the tab was closed 8 s later and the attempt still delivered. A Claude session as the caller was not used. |
+| 5. Worker outlives its caller | **Verified.** A Claude session in a test-workspace tab ran `agent-inbox open`; its tab was closed 3 s after the worker claimed the attempt, and the attempt delivered 22 s later. An earlier run with a plain shell as the caller gave the same result. |
 | 6. Session id | **Verified.** Herdr's `agent_session.value` equals the `--session-id` the worker passed, in both attempts. |
 
 Settle signal: after the opening turn, `completion_seq` and `state_change_seq` were equal and had both

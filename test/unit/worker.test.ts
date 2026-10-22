@@ -284,6 +284,9 @@ describe("worker: identity and delivery evidence", () => {
     expect(fake.focused[0]).toBe(agentAlias(attempt.id));
     expect(view).toMatchObject({ status: "succeeded" });
     expect(view!.ops.find((o) => o.op === "start_agent")!.state).toBe("confirmed");
+    const log = readFileSync(join(bridgeFiles(f.home, attempt.id).dir, "worker.log"), "utf8");
+    expect(log).toContain("block AGENT_BLOCKED");
+    expect(log).toContain("dialog cleared");
   });
 
   test("a dialog nobody answers leaves the attempt blocked with AGENT_BLOCKED", async () => {
