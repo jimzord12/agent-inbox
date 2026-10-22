@@ -1,0 +1,20 @@
+project_name: "agent-inbox"
+default_status: "To Do"
+statuses: ["To Do", "In Progress", "Blocked", "In Review", "Done"]
+labels: ["type:feature", "type:fix", "type:test", "type:docs", "type:chore", "type:review", "core", "cli", "herdr", "bridge", "worker", "mod", "skill", "eval", "live"]
+definition_of_done:
+  - "Gates green: bun run typecheck and bun test pass on the committed revision"
+  - "Review loop PASS (docs/practices/review.md), report stored under docs/reviews/"
+  - "Evidence named in the final summary, with what remains unverified"
+date_format: yyyy-mm-dd
+max_column_width: 20
+auto_open_browser: false
+default_port: 6420
+remote_operations: false
+auto_commit: false
+filesystem_only: false
+zero_padded_ids: 3
+bypass_git_hooks: false
+check_active_branches: false
+active_branch_days: 30
+task_prefix: "inb"

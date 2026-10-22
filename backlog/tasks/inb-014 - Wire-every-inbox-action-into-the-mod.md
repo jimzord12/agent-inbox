@@ -1,0 +1,36 @@
+---
+id: INB-014
+title: Wire every inbox action into the mod
+status: To Do
+assignee: []
+created_date: '2026-10-22 07:06'
+labels:
+  - 'type:feature'
+  - mod
+milestone: m-3
+dependencies:
+  - INB-013
+  - INB-008
+priority: high
+ordinal: 14000
+---
+
+## Description
+
+<!-- SECTION:DESCRIPTION:BEGIN -->
+Open session, Open with profile, Open fresh session (only as its own action), Acknowledge, Dismiss, Snooze/Unsnooze, Mark read/unread, Restore, Retry, Abandon, Focus (spec §12.1-12.2). Snooze takes a duration or local date/time and handles DST gaps and overlaps explicitly.
+<!-- SECTION:DESCRIPTION:END -->
+
+## Acceptance Criteria
+<!-- AC:BEGIN -->
+- [ ] #1 each action calls the matching CLI command and shows its error code and message on failure
+- [ ] #2 Open session never injects anything into the conversation hosting the mod
+- [ ] #3 a nonexistent or ambiguous local time (DST) is refused with a clear message
+<!-- AC:END -->
+
+## Definition of Done
+<!-- DOD:BEGIN -->
+- [ ] #1 Gates green: bun run typecheck and bun test pass on the committed revision
+- [ ] #2 Review loop PASS (docs/practices/review.md), report stored under docs/reviews/
+- [ ] #3 Evidence named in the final summary, with what remains unverified
+<!-- DOD:END -->
