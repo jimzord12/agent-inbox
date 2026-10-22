@@ -1155,3 +1155,50 @@ describe("M2 and M3 milestone reviews, round 1", () => {
     expect(await runWorker(fake, attempt.id)).toMatchObject({ status: "succeeded" });
   });
 });
+
+describe("M2 and M3 milestone reviews, round 2", () => {
+  test("the dialog-focus exception needs an unfinished attempt and its own pane", async () => {
+    // Delivered: a session id missing later is not a dialog, so nothing is focused.
+    const done = openAttempt({ external_id: "done" });
+    const fake = new FakeHerdr(bridge());
+    await runWorker(fake, done.id);
+    fake.agents.get(agentAlias(done.id))!.interactive_ready = false;
+    const before = fake.focused.length;
+    await expect(focusItem(f.inbox, () => fake.herdr(), done.item_id)).rejects.toMatchObject({ code: "AGENT_UNAVAILABLE" });
+    expect(fake.focused.length).toBe(before);
+    // Unfinished, but the alias shows up in another pane: refused.
+    const held = openAttempt({ external_id: "held" });
+    const fake2 = new FakeHerdr({ ...bridge(), onStart: (a) => ((a.agent_status = "blocked"), (a.interactive_ready = false), { error: "agent_not_ready" }) });
+    await runWorker(fake2, held.id);
+    fake2.agents.get(agentAlias(held.id))!.pane_id = "w9:p9";
+    await expect(focusItem(f.inbox, () => fake2.herdr(), held.item_id)).rejects.toMatchObject({ code: "AGENT_UNAVAILABLE" });
+    expect(fake2.focused).toHaveLength(1); // only the worker's own focus of the dialog
+  });
+
+  test("a store error inside the tab and prompt steps also stops the worker as a crash", async () => {
+    const original = Attempts.prototype.finishOp;
+    const originalLayout = Attempts.prototype.recordLayout;
+    for (const where of ["tab", "prompt"] as const) {
+      const attempt = openAttempt({ external_id: where });
+      const spies = [
+        spyOn(Attempts.prototype, "recordLayout").mockImplementation(function (this: Attempts, ...args: Parameters<Attempts["recordLayout"]>) {
+          if (where === "tab" && typeof args[2].tab_id === "string") throw new InboxError("STORE_BUSY", "busy");
+          return originalLayout.apply(this, args);
+        }),
+        spyOn(Attempts.prototype, "finishOp").mockImplementation(function (this: Attempts, ...args: Parameters<Attempts["finishOp"]>) {
+          if (where === "prompt" && args[2] === "dispatch_prompt" && args[3] === "confirmed") throw new InboxError("STORE_BUSY", "busy");
+          return original.apply(this, args);
+        }),
+      ];
+      let view;
+      try {
+        view = await runWorker(new FakeHerdr(bridge()), attempt.id);
+      } finally {
+        for (const s of spies) s.mockRestore();
+      }
+      expect(view!.error!.message).toContain("stopped unexpectedly");
+      const op = where === "tab" ? "create_tab" : "dispatch_prompt";
+      expect(view!.ops.find((o) => o.op === op)!.state).toBe("started");
+    }
+  });
+});
