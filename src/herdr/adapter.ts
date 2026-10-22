@@ -63,10 +63,39 @@ export interface HerdrTarget {
 export type Runner = (argv: string[], env: Record<string, string>, timeoutMs: number) => Promise<{ code: number | null; stdout: string; stderr: string; timedOut: boolean }>;
 
 const defaultRunner: Runner = async (argv, env, timeoutMs) => {
-  const p = Bun.spawn(argv, { env, stdout: "pipe", stderr: "pipe", stdin: "ignore", timeout: timeoutMs, killSignal: "SIGKILL" });
-  const [stdout, stderr, code] = await Promise.all([new Response(p.stdout).text(), new Response(p.stderr).text(), p.exited]);
-  return { code, stdout, stderr, timedOut: p.signalCode === "SIGKILL" };
+  const p = Bun.spawn(argv, { env, stdout: "pipe", stderr: "pipe", stdin: "ignore" });
+  let timedOut = false;
+  const timer = setTimeout(() => {
+    timedOut = true;
+    p.kill();
+  }, timeoutMs);
+  try {
+    const [stdout, stderr, code] = await Promise.all([new Response(p.stdout).text(), new Response(p.stderr).text(), p.exited]);
+    return { code, stdout, stderr, timedOut };
+  } finally {
+    clearTimeout(timer);
+  }
 };
+
+// Herdr error codes after which the side effect may still have happened: `agent start` can
+// launch Claude without Herdr seeing it ready, and a stalled prompt may already be typed.
+const AMBIGUOUS_CODES = new Set(["timeout", "agent_prompt_stalled"]);
+
+// Herdr 0.9.5 writes a success envelope to stdout and an error envelope to stderr, each one
+// JSON object on the last line. Undefined when neither stream holds one.
+function parseEnvelope<T>(stdout: string, stderr: string): { result?: T; error?: { code: string; message: string } } | undefined {
+  for (const text of [stdout, stderr]) {
+    const line = text.trim().split("\n").pop()?.trim();
+    if (!line) continue;
+    try {
+      const body = JSON.parse(line);
+      if (body && typeof body === "object" && ("result" in body || "error" in body)) return body;
+    } catch {
+      // not JSON; try the other stream
+    }
+  }
+  return undefined;
+}
 
 // Herdr variables inherited from a pane the caller happens to run in. Dropped so nothing
 // implicitly targets "the current pane/tab/workspace".
@@ -94,16 +123,34 @@ export class Herdr {
       throw new HerdrError("herdr_unavailable", `Cannot run herdr: ${(err as Error).message}`, "rejected");
     }
     if (r.timedOut) throw new HerdrError("timeout", `herdr ${args[0]} ${args[1] ?? ""} timed out`, "unknown");
-    let body: { result?: T; error?: { code: string; message: string } } | undefined;
-    try {
-      body = JSON.parse(r.stdout.trim().split("\n").pop() ?? "");
-    } catch {
-      const outcome = r.code === 0 ? "unknown" : "rejected";
-      throw new HerdrError("bad_response", `herdr gave no JSON (exit ${r.code}): ${r.stderr.trim().slice(0, 300)}`, outcome);
+    const body = parseEnvelope<T>(r.stdout, r.stderr);
+    if (body?.error) {
+      const code = String(body.error.code);
+      throw new HerdrError(code, String(body.error.message), AMBIGUOUS_CODES.has(code) ? "unknown" : "rejected");
     }
-    if (body?.error) throw new HerdrError(body.error.code, body.error.message, "rejected");
-    if (!body || body.result === undefined) throw new HerdrError("bad_response", "herdr response had no result", "unknown");
+    if (!body || body.result === undefined) {
+      throw new HerdrError("bad_response", `herdr gave no usable answer (exit ${r.code}): ${r.stderr.trim().slice(0, 300)}`, "unknown");
+    }
     return body.result;
+  }
+
+  async workspace(workspaceId: string): Promise<WorkspaceInfo | null> {
+    try {
+      return (await this.call<{ workspace: WorkspaceInfo }>(["workspace", "get", workspaceId])).workspace;
+    } catch (err) {
+      if (err instanceof HerdrError && /not_found/.test(err.code)) return null;
+      throw err;
+    }
+  }
+
+  // The inbox-owned workspace (spec §10.2): reuse the configured id while it exists, otherwise
+  // create a fresh one. Never matches by label and never borrows the focused workspace.
+  async ensureWorkspace(o: { workspaceId?: string | null; label: string; cwd: string }): Promise<{ workspace: WorkspaceInfo; created: boolean }> {
+    if (o.workspaceId) {
+      const existing = await this.workspace(o.workspaceId);
+      if (existing) return { workspace: existing, created: false };
+    }
+    return { workspace: (await this.createWorkspace(o.label, o.cwd)).workspace, created: true };
   }
 
   async workspaces(): Promise<WorkspaceInfo[]> {
