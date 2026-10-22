@@ -4,7 +4,7 @@ title: Run the M4 milestone review loop
 status: To Do
 assignee: []
 created_date: '2026-10-22 07:14'
-updated_date: '2026-10-22 07:20'
+updated_date: '2026-10-22 13:46'
 labels:
   - 'type:review'
 milestone: m-3
@@ -34,3 +34,9 @@ Closed review loop on the combined result of milestone M4 against its goal and e
 - [ ] #2 Evidence named in the final summary, with what remains unverified
 - [ ] #3 Gates green: bun run typecheck and bun run test pass on the committed revision
 <!-- DOD:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+From INB-012 round 2: R2-MIN-1 add an engine test pinning the row guard (old view's rows never drawn under a new view; see docs/reviews/INB-012-r2.md for the steps). Notes: R2-NOTE-1 MOD_ERROR catch has no generation check; R2-NOTE-2 lone skin tone under-counts, tag flags over-count, emoji width unverified live; R2-NOTE-3 a hot reload clears isBusy (development only).
+<!-- SECTION:NOTES:END -->

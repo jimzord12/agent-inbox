@@ -85,6 +85,7 @@ test/          unit, concurrency and fault tests in test/unit (`bun run test`); 
 - **Validation tooling.** `claude plugin validate mod` (manifest, state contract, hooks, calls), `claude plugin test mod` (the engine runs `mod/tests/*.test.tsx`, the engine mocked beneath the mod), `tsc -p mod` once the types are laid. All three pass; the gate (`bun run test`) also covers `mod/hooks/text.ts` through `test/unit/mod-text.test.ts`.
 - **Process calls.** `$.process.run(["bun", ...])` finds `bun` on PATH with no shell on Windows. The mod runs the checkout's CLI at `<mod>/../src/cli/main.ts`; the session's `AGENT_INBOX_HOME` reaches it.
 - **Pane.** Docks beside the transcript in fullscreen and keeps its keys: the view hotkeys (`a`, `s`, `h`) and filter hotkeys work keyboard-only. Wide characters (CJK) take two cells, so rows are laid out by cell width.
+- **State reads are frozen per dispatch.** Every `$.state.get` within one hook run (and the work it awaits) reads the moment that run began, whatever is written meanwhile. A long call that must notice a change made during it (a view switch) checks a module variable, not state (INB-012 round 1).
 - **Driving it from Herdr.** Git Bash rewrites `/inbox` sent by `herdr pane send-text` into a Windows path (`C:/Program Files/Git/inbox`); send it with `MSYS_NO_PATHCONV=1`.
 - **Producer text.** The core already refuses control characters in titles and summaries; a handoff file can still carry escape sequences, so the mod strips them from every CLI answer regardless.
 

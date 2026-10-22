@@ -1,10 +1,10 @@
 ---
 id: INB-012
 title: Show the inbox list in a Claude Code mod
-status: In Progress
+status: Done
 assignee: []
 created_date: '2026-10-22 07:06'
-updated_date: '2026-10-22 13:41'
+updated_date: '2026-10-22 13:46'
 labels:
   - 'type:feature'
   - mod
@@ -24,17 +24,17 @@ The user's inbox view is a Claude Code mod (/inbox), proven sufficient by the 20
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 /inbox opens a pane with Active/Snoozed/History, profile/producer/kind/unread filters and row status
-- [ ] #2 refresh every 2 s while visible keeps the selection by item id and never overlaps calls
-- [ ] #3 every producer string is stripped of control and escape characters before it reaches the pane
-- [ ] #4 the installed mod validation and type-check pass
-- [ ] #5 opening /inbox triggers the same reconciliation as the CLI and launches nothing
-- [ ] #6 the mod preflight facts of spec section 14 step 7 (policy, generated types, validation tooling) are recorded in docs/preflight.md section 6
+- [x] #1 /inbox opens a pane with Active/Snoozed/History, profile/producer/kind/unread filters and row status
+- [x] #2 refresh every 2 s while visible keeps the selection by item id and never overlaps calls
+- [x] #3 every producer string is stripped of control and escape characters before it reaches the pane
+- [x] #4 the installed mod validation and type-check pass
+- [x] #5 opening /inbox triggers the same reconciliation as the CLI and launches nothing
+- [x] #6 the mod preflight facts of spec section 14 step 7 (policy, generated types, validation tooling) are recorded in docs/preflight.md section 6
 <!-- AC:END -->
 
 ## Definition of Done
 <!-- DOD:BEGIN -->
-- [ ] #1 Review loop PASS (docs/practices/review.md), report stored under docs/reviews/
+- [x] #1 Review loop PASS (docs/practices/review.md), report stored under docs/reviews/
 - [ ] #2 Evidence named in the final summary, with what remains unverified
 - [ ] #3 Gates green: bun run typecheck and bun run test pass on the committed revision
 <!-- DOD:END -->
@@ -51,4 +51,15 @@ Round 1 (docs/reviews/INB-012-r1.md, PASS) dispositions:
 - R1-MIN-6 fixed: selection is a leading › glyph, not inverse; checked live (focused row inverse, selected row ›).
 - R1-NOTE-3 fixed: inertDeep defines keys, so __proto__ stays a plain key; unit test added.
 - R1-NOTE-1, R1-NOTE-2 not done: filter seeding and showing snoozed_until belong with INB-014 (snooze, local time).
+
+Round 2 (docs/reviews/INB-012-r2.md, PASS) dispositions:
+- R2-MIN-1 carried to the M4 milestone loop (INB-024): add the engine test pinning the row guard (Active rows on screen, press h mid-call, rows gone).
+- R2-NOTE-4 done: the frozen-state-per-dispatch fact is in preflight §6.
+- R2-NOTE-1, R2-NOTE-2, R2-NOTE-3 carried to INB-024 as notes (MOD_ERROR catch without generation check; lone skin-tone and tag-flag widths, emoji width unverified live; hot reload clears isBusy, development only).
 <!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+The /inbox mod (mod/) opens a docked pane listing the inbox through the JSON CLI: Active/Snoozed/History, cycling profile/producer/kind/unread filters, rows with read mark, kind, title, profile, producer, age and launch/error status (core list items now carry latest_attempt). Refreshes every 2 s while shown, one call at a time, drops answers for a view left meanwhile, keeps the selection by id (a › glyph, distinct from focus), and makes every CLI string inert. Checks: gate, claude plugin validate/test, tsc -p mod; two live runs on the work profile. Review: r1 PASS (6 minors fixed, one exposing the frozen-state-per-dispatch bug), r2 PASS (one minor and notes carried to INB-024). Install-time CLI path to verify in INB-020.
+<!-- SECTION:FINAL_SUMMARY:END -->
