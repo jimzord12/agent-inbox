@@ -39,6 +39,7 @@ function readContext(path: string): HookContext {
 }
 
 export async function run(argv: string[]): Promise<never> {
+  const startedAt = new Date().toISOString();
   const event = argv[0] as HookEvent;
   if (!EVENTS.includes(event)) finish({ exitCode: 0 });
   let input: Record<string, unknown> | null = null;
@@ -52,7 +53,7 @@ export async function run(argv: string[]): Promise<never> {
   try {
     input = await readInput();
     const i = argv.indexOf("--bridge");
-    const ctx = readContext(i >= 0 ? (argv[i + 1] ?? "") : "");
+    const ctx = { ...readContext(i >= 0 ? (argv[i + 1] ?? "") : ""), startedAt };
     const outcome = safeHandle(event, ctx, input, process.env);
     clearTimeout(timer);
     finish(outcome);

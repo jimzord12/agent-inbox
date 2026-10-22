@@ -22,6 +22,9 @@ export interface HookContext {
   capability: string;
   // The bridge file this hook was started with; receipt-pending.json is written beside it.
   bridgePath?: string;
+  // When the hook process started. A receipt saved aside carries this time, so one whose Stop
+  // began before a refused startup can be told apart from a later one (reconcile).
+  startedAt?: string;
 }
 
 export interface HookOutcome {
@@ -119,6 +122,15 @@ export function safeHandle(
     return handle(event, ctx, input, env);
   } catch (err) {
     if (event === "stop" && isBusy(err)) return stopWhileBusy(ctx, input, env);
+    // Claude runs SessionStart once: a startup lost to a busy store is tried once more, or the
+    // session stays unbound and the worker blocks at its bind timeout.
+    if (event === "session-start" && isBusy(err)) {
+      try {
+        return handle(event, ctx, input, env);
+      } catch {
+        return PASS;
+      }
+    }
     return failClosed(event, input, err);
   }
 }
@@ -143,7 +155,7 @@ function stopWhileBusy(ctx: HookContext, input: Record<string, unknown>, env: Re
         attempt_id: ctx.attemptId,
         session_id: str(input, "session_id"),
         last_assistant_message: message,
-        written_at: new Date().toISOString(),
+        written_at: ctx.startedAt ?? new Date().toISOString(),
       });
     } catch {
       // Nothing else to try; the attempt stays recoverable by abandoning it.

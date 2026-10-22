@@ -64,6 +64,10 @@ export function fromStoreError(err: unknown): InboxError {
   if (code.startsWith("SQLITE_BUSY") || code.startsWith("SQLITE_LOCKED")) {
     return new InboxError("STORE_BUSY", "The inbox store is busy; try again.");
   }
+  // The disk or the database size limit is full: nothing was written (the transaction rolled back).
+  if (code.startsWith("SQLITE_FULL")) {
+    return new InboxError("STORE_ERROR", "The inbox store is full (no disk space or the database limit was reached); nothing was saved. Free space and try again.", { reason: "full" });
+  }
   if (code.startsWith("SQLITE_")) {
     return new InboxError("STORE_ERROR", `Store error (${code}).`);
   }
