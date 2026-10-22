@@ -7,12 +7,17 @@
 //
 // Live runs follow AGENTS.md: own Herdr workspace (its label below), work profile only, never
 // the owner's workspaces.
-import { mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 const runDir = process.argv[2];
 if (!runDir) {
   console.error("usage: bun test/e2e/inb007-live.ts <run-dir>");
+  process.exit(2);
+}
+// Only a new or empty folder: a mistyped path must never get files written into it.
+if (existsSync(runDir) && readdirSync(runDir).length) {
+  console.error(`refusing: ${runDir} is not empty`);
   process.exit(2);
 }
 const MAIN = join(import.meta.dir, "..", "..", "src", "cli", "main.ts");

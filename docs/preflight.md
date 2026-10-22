@@ -91,6 +91,26 @@ Each is checked in a disposable fixture dir in the `Agent Inbox` workspace, neve
 5. Detached worker survives its caller closing: INB-007 runs `agent-inbox open` from a Claude session in a test-workspace tab and closes that tab (the spike saw the same with a mod; no mod needed here).
 6. `agent_session.value` equals the `--session-id` we passed.
 
+### 7.1 Results of the first live launch (INB-007, 2026-10-22, work profile)
+
+Two real attempts in a throwaway workspace (`inbox-e2e-inb007`), fixture folder path with a space
+and `é`, Claude Code 2.1.308, Herdr 0.9.5. Both ended `succeeded`, with binding, accepted prompt,
+receipt and confirmed focus recorded.
+
+| Point | Result |
+|---|---|
+| 1. `--settings` additive | **Verified for hooks.** The session's Stop summary lists two hooks: the profile's own notify hook and the inbox bridge (90 ms). The production guard is a PreToolUse hook from the same profile file and merges the same way, but it leaves no trace when it allows a call, and no guarded action was triggered to see it fire. |
+| 2. Hook input and blocking | **Verified.** SessionStart's `session_id` and `cwd` bound the attempt, the opening prompt was accepted, and Stop's `last_assistant_message` gave a valid receipt (144-character orientation). A forged opening prompt (right attempt id, wrong packet hash) was refused (`ATTEMPT_CLOSED`); Claude showed "UserPromptSubmit operation blocked by hook", and the transcript gained no user turn, so the model never saw it. Claude then puts the refused text back in the input box. |
+| 3. Env in the session (work) | `CLAUDE_CONFIG_DIR` = the work folder, as the tab set it; no auth-affecting variable names present. The personal side stays with INB-018. |
+| 4. Trust dialog | Claude in a new folder shows "Accessing workspace … Is this a project you created or one you trust?" with "No, exit" preselected. `agent start` answers `agent_not_ready`; the worker blocks with `AGENT_BLOCKED` and focuses the tab; SessionStart runs only after the dialog is answered, and the worker resumes within about a second. The agent's own keypress to confirm was refused by the harness's safety check, so in this run the owner confirmed it; later live runs should reuse an already trusted fixture folder. |
+| 5. Worker outlives its caller | **Verified with a shell caller.** `agent-inbox open` ran in a shell in a test-workspace tab; the tab was closed 8 s later and the attempt still delivered. A Claude session as the caller was not used. |
+| 6. Session id | **Verified.** Herdr's `agent_session.value` equals the `--session-id` the worker passed, in both attempts. |
+
+Settle signal: after the opening turn, `completion_seq` and `state_change_seq` were equal and had both
+moved past the pre-dispatch value, with `agent_status` `idle`. The worker's rule (`state_change_seq`
+above the baseline, plus idle or done) held. `agent focus` answers the focused agent's full record,
+not `{type: "ok"}`; the recorded answers are in `test/unit/fixtures/herdr.ts`.
+
 ## 8. Unresolved user decisions
 
 None. GitHub is decided (public, remote set up). The executable name stays `agent-inbox` unless the owner says otherwise.

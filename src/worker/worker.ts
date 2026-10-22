@@ -1,4 +1,4 @@
-import { appendFileSync, existsSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { type AttemptRow, type AttemptView, Attempts, type OpName } from "../core/attempts";
 import { bridgeFiles, writeBridgeSettings } from "../bridge/settings";
@@ -288,6 +288,7 @@ export class Worker {
 
   private async watchBlockedStart(alias: string): Promise<boolean> {
     this.at.block(this.attemptId, this.gen, "AGENT_BLOCKED", "Claude is waiting on a dialog in its tab; answer it there.");
+    this.log("block AGENT_BLOCKED: Claude is waiting on a dialog; watching for it to clear");
     try {
       await this.d.herdr.focus(alias);
     } catch {
@@ -304,6 +305,7 @@ export class Worker {
       const info = await this.readAgent(alias);
       if (info && info.interactive_ready !== false && info.agent_status !== "blocked" && info.agent_session?.value) {
         if (!this.at.resume(this.attemptId, this.gen, "AGENT_BLOCKED")) throw new Stop();
+        this.log("dialog cleared; continuing");
         this.at.finishOp(this.attemptId, this.gen, "start_agent", "confirmed", { after: "dialog" });
         return true;
       }
@@ -469,7 +471,10 @@ export class Worker {
   // A short diagnostic log beside the bridge files. Never the packet, capability or challenge.
   private log(line: string) {
     try {
-      appendFileSync(join(bridgeFiles(this.d.inbox.home, this.attemptId).dir, "worker.log"), `${new Date().toISOString()} ${line}\n`);
+      // The attempt folder may not exist yet (the first lines come before preflight writes it).
+      const dir = bridgeFiles(this.d.inbox.home, this.attemptId).dir;
+      mkdirSync(dir, { recursive: true });
+      appendFileSync(join(dir, "worker.log"), `${new Date().toISOString()} ${line}\n`);
     } catch {
       // Diagnostics only.
     }

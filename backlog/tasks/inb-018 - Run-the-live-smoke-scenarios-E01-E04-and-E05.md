@@ -4,7 +4,7 @@ title: 'Run the live smoke scenarios E01, E04 and E05'
 status: To Do
 assignee: []
 created_date: '2026-10-22 07:06'
-updated_date: '2026-10-22 07:20'
+updated_date: '2026-10-22 11:05'
 labels:
   - 'type:test'
   - eval
@@ -40,3 +40,9 @@ Evaluation plan §9: E01 (a real producer leaves usable work), E04 (correct prof
 - [ ] #2 Evidence named in the final summary, with what remains unverified
 - [ ] #3 Gates green: bun run typecheck and bun run test pass on the committed revision
 <!-- DOD:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+From INB-007: the worker-outlives-caller check used a shell caller in a Herdr tab; E05 (or this task) may repeat it with a Claude session as the caller if that matters for the mod.
+<!-- SECTION:NOTES:END -->

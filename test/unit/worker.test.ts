@@ -306,6 +306,7 @@ describe("worker: identity and delivery evidence", () => {
     await runWorker(new FakeHerdr(bridge()), attempt.id);
     const row = at.row(attempt.id);
     const log = readFileSync(join(bridgeFiles(f.home, row.id).dir, "worker.log"), "utf8");
+    expect(log).toContain("claimed generation");
     expect(log).toContain("delivered");
     expect(log).not.toContain(row.capability);
     expect(log).not.toContain(row.challenge);

@@ -63,7 +63,7 @@ describe("server selection and inherited environment", () => {
   });
 
   test("every call names the configured socket and drops the caller's pane, tab and workspace", async () => {
-    const { herdr, calls } = fake(rec.agentGet, rec.tabGet, rec.ok("agent:focus"));
+    const { herdr, calls } = fake(rec.agentGet, rec.tabGet, rec.agentFocus);
     await herdr.agent("inbox-a1b2c3");
     await herdr.tab("w7:t2");
     await herdr.focus("inbox-a1b2c3");
@@ -157,15 +157,15 @@ describe("calls and recorded answers", () => {
     const r = await herdr.startAgent({ name: "inbox-a1b2c3", paneId: "w7:p2", args, timeoutMs: 60_000 });
     expect(calls[0]?.argv.slice(1)).toEqual(["agent", "start", "inbox-a1b2c3", "--kind", "claude", "--pane", "w7:p2", "--timeout", "60000", "--", ...args]);
     expect(calls[0]?.timeoutMs).toBeGreaterThan(60_000);
-    expect(r.agent.agent_session?.value).toBe("6f1c2a7e-0d7b-4c35-9a52-1f0e8d3b9c41");
-    expect(r.argv).toContain("--settings");
+    expect(r.agent.agent_session?.value).toBe(JSON.parse(rec.agentStart).result.agent.agent_session.value);
+    expect(r.argv[0]).toBe("claude");
   });
 
   test("agent get and list return the native session identity", async () => {
     const { herdr, calls } = fake(rec.agentGet, rec.agentList);
     const a = await herdr.agent("inbox-a1b2c3");
     expect(a).toMatchObject({ name: "inbox-a1b2c3", pane_id: "w7:p2", agent_status: "idle", agent_session: { source: "herdr:claude", kind: "id" } });
-    expect((await herdr.agents()).map((x) => x.name)).toEqual(["inbox-a1b2c3"]);
+    expect((await herdr.agents()).map((x) => x.name)).toEqual(JSON.parse(rec.agentList).result.agents.map((x: { name: string }) => x.name));
     expect(calls.map((c) => c.argv.slice(1))).toEqual([["agent", "get", "inbox-a1b2c3"], ["agent", "list"]]);
   });
 
@@ -175,11 +175,17 @@ describe("calls and recorded answers", () => {
     const r = await herdr.prompt("inbox-a1b2c3", text);
     expect(calls[0]?.argv.slice(1)).toEqual(["agent", "prompt", "inbox-a1b2c3", text]);
     expect(calls[0]?.argv).not.toContain("--wait");
-    expect(r.agent_status).toBe("working");
+    expect(r.agent_session?.value).toMatch(/^[0-9a-f-]{36}$/);
+  });
+
+  test("a start held by a dialog is agent_not_ready, an unknown outcome", async () => {
+    const { herdr } = fake(rec.agentStartNotReady);
+    const e = await failure(herdr.startAgent({ name: "inbox-a1b2c3", paneId: "w7:p2", args: [], timeoutMs: 25_000 }));
+    expect(e).toMatchObject({ code: "agent_not_ready", outcome: "unknown" });
   });
 
   test("focus targets the given alias only", async () => {
-    const { herdr, calls } = fake(rec.ok("agent:focus"));
+    const { herdr, calls } = fake(rec.agentFocus);
     await herdr.focus("inbox-a1b2c3");
     expect(calls[0]?.argv.slice(1)).toEqual(["agent", "focus", "inbox-a1b2c3"]);
   });
