@@ -1,7 +1,7 @@
 // Pure helpers of the /inbox mod: making producer text inert and laying out list rows. No engine
 // calls here, so the repository's unit tests cover this file directly.
 
-import type { InboxRow, InboxView } from "../types";
+import type { InboxAttempt, InboxAttemptSummary, InboxDetail, InboxRow, InboxView } from "../types";
 
 // Escape sequences first (CSI, OSC, the two-byte forms), then any control character left over.
 // One string the engine cannot draw makes it refuse the whole pane (docs/decisions.md, mod spike).
@@ -12,29 +12,35 @@ const C1_CSI = /\u009b[0-?]*[ -/]*[@-~]?/g;
 // C0 but tab, LF and CR (handled below), DEL, C1, and the bidirectional overrides that would
 // let a title draw in another order than it reads.
 const LONE_SURROGATE = /[\ud800-\udbff](?![\udc00-\udfff])|(?<![\ud800-\udbff])[\udc00-\udfff]/g;
-const CONTROL =/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f؜‎‏‪-‮⁦-⁩]/g;
+const CONTROL = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f\u061c\u200e\u200f\u202a-\u202e\u2066-\u2069]/g;
 
 // `multiline` keeps line breaks (a handoff preview); otherwise every break and tab is a space.
 export function inert(text: string, opts: { multiline?: boolean } = {}): string {
-  let s = text.replace(LONE_SURROGATE, "�").replace(OSC, "").replace(CSI, "").replace(C1_CSI, "").replace(ESC, "").replace(CONTROL, "");
+  let s = text.replace(LONE_SURROGATE, "\ufffd").replace(OSC, "").replace(CSI, "").replace(C1_CSI, "").replace(ESC, "").replace(CONTROL, "");
   s = s.replace(/\r\n?/g, "\n");
   s = opts.multiline ? s.replace(/\t/g, "    ") : s.replace(/[\t\n]/g, " ");
   return s;
 }
 
-// Every string of a CLI answer, keys included, made inert before anything reaches the pane.
-export function inertDeep<T>(value: T): T {
-  if (typeof value === "string") return inert(value) as T;
-  if (Array.isArray(value)) return value.map(inertDeep) as T;
+// Every string of a CLI answer, keys included, made inert before anything reaches the pane. The
+// mod reads answers `multiline` (a handoff, a summary keep their lines); a field drawn on one line
+// goes through `oneLine` where it is drawn.
+export function inertDeep<T>(value: T, opts: { multiline?: boolean } = {}): T {
+  if (typeof value === "string") return inert(value, opts) as T;
+  if (Array.isArray(value)) return value.map((v) => inertDeep(v, opts)) as T;
   if (value && typeof value === "object") {
     const out: Record<string, unknown> = {};
     // Defined, not assigned: a `__proto__` key from JSON stays a plain key.
     for (const [k, v] of Object.entries(value)) {
-      Object.defineProperty(out, inert(k), { value: inertDeep(v), enumerable: true, writable: true, configurable: true });
+      Object.defineProperty(out, inert(k), { value: inertDeep(v, opts), enumerable: true, writable: true, configurable: true });
     }
     return out as T;
   }
   return value;
+}
+
+export function oneLine(text: string): string {
+  return text.replace(/\n/g, " ");
 }
 
 type View = InboxView;
@@ -45,7 +51,7 @@ export function toRow(item: Row): Row {
     id: item.id,
     producer_id: item.producer_id,
     kind: item.kind,
-    title: item.title,
+    title: oneLine(item.title),
     profile_id: item.profile_id,
     created_at: item.created_at,
     read: item.read,
@@ -171,4 +177,197 @@ export function rowLine(row: Row, view: View, nowMs: number, columns: number, se
   const tailRoom = Math.min(width(tail), Math.max(0, room - 10 - 2));
   const titleRoom = room - (tailRoom ? tailRoom + 2 : 0);
   return `${head}${fit(row.title, titleRoom)}${tailRoom ? `  ${fit(tail, tailRoom)}` : ""}`.trimEnd();
+}
+
+// --- Details (spec §12.1) ---
+
+// The fields of a `get --include-context` item the details view reads (src/core/inbox.ts ItemDetail).
+export interface RawDetail {
+  id: string;
+  kind: InboxDetail["kind"];
+  title: string;
+  producer_id: string;
+  profile_id: string;
+  placement: InboxView;
+  read: boolean;
+  content_revision: number;
+  state_version: number;
+  snoozed_until: string | null;
+  archive_reason: string | null;
+  revision: {
+    received_at: string;
+    payload: { summary: string; launch?: { cwd: string; initial_instruction: string }; context_refs?: InboxDetail["context_refs"] };
+    handoff: InboxDetail["handoff"];
+    handoff_text?: string;
+  };
+  attempts?: InboxAttemptSummary[];
+}
+
+export function toDetail(item: RawDetail): InboxDetail {
+  const r = item.revision;
+  const launch = r.payload.launch;
+  return {
+    id: item.id,
+    kind: item.kind,
+    title: oneLine(item.title),
+    producer_id: item.producer_id,
+    profile_id: item.profile_id,
+    placement: item.placement,
+    read: item.read,
+    content_revision: item.content_revision,
+    state_version: item.state_version,
+    snoozed_until: item.snoozed_until,
+    archive_reason: item.archive_reason,
+    summary: r.payload.summary,
+    received_at: r.received_at,
+    launch: launch ? { cwd: launch.cwd, initial_instruction: launch.initial_instruction } : null,
+    context_refs: r.payload.context_refs ?? [],
+    handoff: r.handoff,
+    handoff_text: r.handoff_text ?? null,
+    attempts: item.attempts ?? [],
+  };
+}
+
+export function toAttempt(a: InboxAttempt): InboxAttempt {
+  return {
+    id: a.id,
+    status: a.status,
+    phase: a.phase,
+    profile_id: a.profile_id,
+    cwd: a.cwd,
+    session_uuid: a.session_uuid,
+    error: a.error,
+    availability: a.availability,
+    evidence: {
+      bound: a.evidence.bound,
+      prompt_state: a.evidence.prompt_state,
+      receipt_candidate: a.evidence.receipt_candidate,
+      delivered: a.evidence.delivered,
+      focused: a.evidence.focused,
+    },
+    next_actions: a.next_actions,
+  };
+}
+
+// An ISO time as the person reads it. UTC, said so: the mod has no time zone database of its own.
+export function when(iso: string | null): string {
+  return iso ? `${iso.slice(0, 16).replace("T", " ")} UTC` : "";
+}
+
+export function size(bytes: number): string {
+  return bytes < 1024 ? `${bytes} B` : `${(bytes / 1024).toFixed(1)} KiB`;
+}
+
+// The handoff in pages. A page holds at most PAGE_LINES pieces and about PAGE_CHARS characters, so
+// a 256 KiB handoff never meets the engine's 100,000-character limit on one tree. A line longer
+// than PIECE_CHARS is cut into pieces; `joined` marks a piece that continues the line before it.
+export const PAGE_LINES = 40;
+export const PAGE_CHARS = 6000;
+export const PIECE_CHARS = 2000;
+
+export interface Piece {
+  text: string;
+  line: number;
+  joined: boolean;
+}
+
+export function paginate(text: string): Piece[][] {
+  const pieces: Piece[] = [];
+  text.split("\n").forEach((line, i) => {
+    const chars = [...line];
+    if (chars.length <= PIECE_CHARS) {
+      pieces.push({ text: line, line: i + 1, joined: false });
+      return;
+    }
+    for (let at = 0; at < chars.length; at += PIECE_CHARS) {
+      pieces.push({ text: chars.slice(at, at + PIECE_CHARS).join(""), line: i + 1, joined: at > 0 });
+    }
+  });
+  const pages: Piece[][] = [];
+  let page: Piece[] = [];
+  let chars = 0;
+  for (const p of pieces) {
+    if (page.length && (page.length >= PAGE_LINES || chars + p.text.length > PAGE_CHARS)) {
+      pages.push(page);
+      page = [];
+      chars = 0;
+    }
+    page.push(p);
+    chars += p.text.length;
+  }
+  pages.push(page);
+  return pages;
+}
+
+// Lines as a person counts them: a final line break ends the last line, it does not start one.
+export function lineCount(pages: Piece[][]): number {
+  const last = pages.at(-1)?.at(-1);
+  if (!last) return 0;
+  return last.text === "" && !last.joined && last.line > 1 ? last.line - 1 : last.line;
+}
+
+// The pages joined back: exactly the text paginated (the check that no line is lost).
+export function unpaginate(pages: Piece[][]): string {
+  let out = "";
+  pages.flat().forEach((p, i) => {
+    out += i === 0 || p.joined ? p.text : `\n${p.text}`;
+  });
+  return out;
+}
+
+export interface Progress {
+  label: string;
+  hint: string;
+  tone: "progress" | "attention" | "error" | "done";
+}
+
+const AVAILABILITY: Record<string, string> = {
+  live: "the session was open when last checked",
+  closed: "the session has closed",
+  unknown: "another session holds its tab now; this one may live on elsewhere",
+  unavailable: "Herdr could not be asked when last checked",
+};
+
+export function availabilityText(a: InboxAttempt["availability"]): string {
+  return a ? (AVAILABILITY[a] ?? a) : "not checked yet";
+}
+
+// What an attempt is doing, in the person's words (spec §12.1): starting, waiting on the user,
+// waiting for acknowledgment, focus failure, uncertain, and the final outcomes.
+export function progress(a: InboxAttempt): Progress {
+  const code = a.error?.code ?? null;
+  const message = a.error?.message ?? "";
+  switch (a.status) {
+    case "in_progress":
+      if (a.phase === "submit_context" || a.phase === "await_receipt") {
+        return { label: "Waiting for the session to acknowledge the handoff", hint: "The session has the handoff and is reading it.", tone: "progress" };
+      }
+      if (a.phase === "focus") return { label: "Focusing the session", hint: "The handoff was acknowledged; its tab is being brought forward.", tone: "progress" };
+      return { label: "Starting the session", hint: "A fresh Claude session is starting in its own Herdr tab.", tone: "progress" };
+    case "blocked":
+      if (code === "AGENT_BLOCKED") {
+        return { label: "Waiting on you", hint: "The session's tab shows a dialog (trust, login or a question). Focus it and answer it there.", tone: "attention" };
+      }
+      if (a.phase === "focus" || a.evidence.receipt_candidate) {
+        return { label: "Focus failed", hint: `The session acknowledged the handoff, but its tab could not be focused. Retry only focuses it again; nothing is resent. ${message}`.trim(), tone: "attention" };
+      }
+      return { label: `Blocked: ${code ?? "unknown"}`, hint: message, tone: "attention" };
+    case "uncertain":
+      return {
+        label: "Outcome uncertain",
+        hint: "A step may or may not have happened (for example the PC slept mid-launch). Retry checks what happened first and never sends the handoff twice.",
+        tone: "attention",
+      };
+    case "failed":
+      return { label: `Failed: ${code ?? "unknown"}`, hint: message, tone: "error" };
+    case "succeeded":
+      return { label: "Delivered", hint: `The session acknowledged the exact handoff; ${availabilityText(a.availability)}.`, tone: "done" };
+  }
+}
+
+// One prior attempt on one line: when, how it ended, and whether its session is known to live.
+export function attemptLine(s: InboxAttemptSummary): string {
+  const end = s.status === "succeeded" ? `delivered ${when(s.delivered_at)}` : `${s.status.replace("_", " ")}${s.error_code ? ` ${s.error_code}` : ""}`;
+  const seen = s.status === "succeeded" ? ` · ${availabilityText(s.availability)}` : "";
+  return `${when(s.created_at)}  ${s.profile_id}  ${end}${seen}`;
 }

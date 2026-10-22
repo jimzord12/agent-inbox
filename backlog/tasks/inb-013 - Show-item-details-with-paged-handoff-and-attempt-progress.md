@@ -1,10 +1,10 @@
 ---
 id: INB-013
 title: Show item details with paged handoff and attempt progress
-status: To Do
+status: In Progress
 assignee: []
 created_date: '2026-10-22 07:06'
-updated_date: '2026-10-22 13:16'
+updated_date: '2026-10-22 13:54'
 labels:
   - 'type:feature'
   - mod

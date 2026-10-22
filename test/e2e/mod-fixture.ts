@@ -1,8 +1,9 @@
 #!/usr/bin/env bun
 // A throwaway inbox for live /inbox mod runs, run by hand only: `bun test/e2e/mod-fixture.ts <run-dir>`.
-// Seeds one item of each kind and placement through the real CLI: two Active (one actionable, one
-// informational with a UTF-8 title), one Snoozed, one in History. The core refuses control
-// characters in titles and summaries, so the escapes the mod must make inert are in the handoff.
+// Seeds one item of each kind and placement through the real CLI: three Active (two actionable,
+// one of them with a 256 KiB handoff, and one informational with a UTF-8 title), one Snoozed, one
+// in History. The core refuses control characters in titles and summaries, so the escapes the mod
+// must make inert are in the handoff.
 // It launches nothing. Point a Claude session at it with AGENT_INBOX_HOME=<run-dir>/home and
 // load the mod with `claude --plugin-dir mod`; live runs follow AGENTS.md (own Herdr workspace,
 // work profile only).
@@ -34,7 +35,7 @@ const handoff = join(runDir, "handoff.md");
 writeFileSync(
   handoff,
   "# Handoff (live test)\n\nA test handoff from an agent-inbox mod live run.\nThere is no real work here: orient in one sentence and wait.\n\n" +
-    "Escapes the mod must make inert: \u001b[31mred\u001b[0m\u0007 bell ‮evil \u001b]8;;https://example.com\u0007link\u001b]8;;\u0007\n",
+    "Escapes the mod must make inert: \u001b[31mred\u001b[0m\u0007 bell \u202eevil \u001b]8;;https://example.com\u0007link\u001b]8;;\u0007\n",
 );
 
 function cli(args: string[], input?: unknown) {
@@ -49,7 +50,7 @@ function cli(args: string[], input?: unknown) {
   return out.data;
 }
 
-function submit(externalId: string, kind: "actionable" | "informational", title: string, producer = "e2e.mod") {
+function submit(externalId: string, kind: "actionable" | "informational", title: string, producer = "e2e.mod", handoffPath = handoff) {
   const item = {
     api_version: 1,
     producer_id: producer,
@@ -59,7 +60,7 @@ function submit(externalId: string, kind: "actionable" | "informational", title:
     summary: `A throwaway ${kind} item for a live /inbox run.`,
     profile_id: "work",
     ...(kind === "actionable"
-      ? { handoff_path: handoff, launch: { agent: "claude-code", cwd: fixture, initial_instruction: "This is a mod test. Orient in one sentence, then wait." } }
+      ? { handoff_path: handoffPath, launch: { agent: "claude-code", cwd: fixture, initial_instruction: "This is a mod test. Orient in one sentence, then wait." } }
       : {}),
   };
   return cli(["submit", "--input", "-"], item).item;
@@ -67,8 +68,18 @@ function submit(externalId: string, kind: "actionable" | "informational", title:
 
 const open = submit("actionable-1", "actionable", "Review the throwaway plan");
 const noisy = submit("informational-1", "informational", "Build done: Ελληνικά 日本 ✓", "e2e.other");
+// A handoff at the 256 KiB limit, numbered lines, for paging it from start to end in the pane.
+const bigPath = join(runDir, "big-handoff.md");
+let big = "";
+for (let i = 1; ; i++) {
+  const line = `line ${i}: a numbered step of a long throwaway plan\n`;
+  if (Buffer.byteLength(big + line) > 256 * 1024) break;
+  big += line;
+}
+writeFileSync(bigPath, big);
+const large = submit("actionable-big", "actionable", "A 256 KiB handoff", "e2e.mod", bigPath);
 const later = submit("snoozed-1", "informational", "Look at this tomorrow");
 cli(["snooze", later.id, "--until", new Date(Date.now() + 86400_000).toISOString(), "--if-state-version", String(later.state_version)]);
 const done = submit("history-1", "informational", "Already handled");
 cli(["archive", done.id, "--if-state-version", String(done.state_version)]);
-console.log(JSON.stringify({ home, fixture, items: { active: [open.id, noisy.id], snoozed: later.id, history: done.id } }));
+console.log(JSON.stringify({ home, fixture, items: { active: [open.id, noisy.id, large.id], snoozed: later.id, history: done.id } }));
